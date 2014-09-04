@@ -14,6 +14,7 @@ from matplotlib.collections import PatchCollection
 from matplotlib.collections import LineCollection
 from matplotlib.patches import Polygon
 from scipy.spatial import Delaunay
+from matplotlib.colors import LinearSegmentedColormap
 #from scipy.spatial import delaunay_plot_2d
 
 # returns the angle in radians of the interior angle made by 3 points
@@ -114,7 +115,8 @@ def minkowski_structure_metric(vor,l,limits):
     return msm
 
 # import the points to analyze
-pts = np.loadtxt("ustem_XY.txt",skiprows=1,usecols=(1,2),ndmin=2)
+test_data_path = '../test_data/'
+pts = np.loadtxt(test_data_path+'ustem_XY.txt',skiprows=1,usecols=(1,2),ndmin=2)
 
 # ideal square grid test case
 #x = np.linspace(-0.5, 2.5, 5)
@@ -128,7 +130,7 @@ vor = Voronoi(pts)
 plt.figure(1)
 #plt.subplot(231)
 
-im = plt.imread("ustem.png")
+im = plt.imread(test_data_path+'ustem_binary.tif')
 implot = plt.imshow(im)
 
 bond_order = 4
@@ -137,16 +139,27 @@ bond_order = 4
 msm = minkowski_structure_metric(vor,bond_order,(im.shape[1],im.shape[0]))
 
 # get a color map for mapping metric values to colors of some color scale
-colormap = plt.get_cmap('spectral')
+#colormap = plt.get_cmap('spectral')
+value_rgb_pairs = []
+rgb_array = np.asarray([[0,0,0],[255,0,0],[255,50,34],[255,109,59],[255,177,102],[255,220,125],[255,245,160],[255,245,192],[255,255,255],[212,251,255],[160,253,255],[120,226,255],[81,177,255],[55,127,255],[31,81,255],[0,13,255]],dtype='f4')
+rgb_array /= 255
+rgb_list_norm = []
+    
+for value, color in zip(np.linspace(0,1,16),rgb_array):
+    value_rgb_pairs.append((value,color))
+    
+custom_color_map = LinearSegmentedColormap.from_list(name="custom", colors=value_rgb_pairs, N=16)
 
+symmetry_colormap = plt.get_cmap('spectral')
+    
 cell_patches = []
 for metric,region_index in msm:
     region_index = int(region_index)
     region = vor.regions[region_index]
     verts = np.asarray([vor.vertices[index] for index in region])
-    cell_patches.append(Polygon(verts,closed=True,facecolor=colormap(metric),edgecolor='k'))
+    cell_patches.append(Polygon(verts,closed=True,facecolor=symmetry_colormap(metric),edgecolor='k'))
 
-pc = PatchCollection(cell_patches,match_original=False,cmap=colormap,alpha=0.5)
+pc = PatchCollection(cell_patches,match_original=False,cmap=symmetry_colormap,alpha=0.5)
 pc.set_array(np.array([metric for metric,_ in msm]))
 plt.gca().add_collection(pc)
 
@@ -161,14 +174,14 @@ plt.gca().set_xlim(0, im.shape[1])
 plt.gca().set_ylim(im.shape[0], 0)
 
 # save this plot to a file
-plt.savefig('q'+str(bond_order)+'_map.png',bbox_inches='tight')
+plt.savefig(test_data_path+'q'+str(bond_order)+'_map.png',bbox_inches='tight')
 
 # plot a histogram of the Minkowski structure metrics
 plt.figure(2)
 #plt.subplot(234)
 
-plt.hist([metric for metric,_ in msm],bins=len(msm))
-plt.savefig('q'+str(bond_order)+'hist.png', bbox_inches='tight')
+plt.hist([metric for metric,_ in msm],bins=len(msm)/4)
+plt.savefig(test_data_path+'q'+str(bond_order)+'hist.png', bbox_inches='tight')
 
 
 # Calculate and plot the "bond strengths"
@@ -178,7 +191,7 @@ plt.figure(3)
 # add the TEM image as the background
 implot = plt.imshow(im)
 
-bond_color_map = plt.get_cmap('Accent')
+bond_color_map = plt.get_cmap('hot')
 
 # bond_strenths is a 2D symmetric array where bond_strengths[i,j] is the bond strength
 # between input points i and j
@@ -212,8 +225,9 @@ for ridge_vert_indices,input_pair_indices in zip(vor.ridge_vertices,vor.ridge_po
             bond_strengths[input_pair_indices[1],input_pair_indices[0]] = bond_strengths[input_pair_indices[0],input_pair_indices[1]]
     
             # make the lines
-            line_segments.append(np.asarray([pts[input_pair_indices[0]],pts[input_pair_indices[1]]]))
-            line_colors.append(bond_strengths[input_pair_indices[0],input_pair_indices[1]])
+            if bond_strengths[input_pair_indices[0],input_pair_indices[1]] > 50:
+                line_segments.append(np.asarray([pts[input_pair_indices[0]],pts[input_pair_indices[1]]]))
+                line_colors.append(bond_strengths[input_pair_indices[0],input_pair_indices[1]])
 
 lc = LineCollection(line_segments,cmap=bond_color_map)
 lc.set_array(np.asarray(line_colors))
@@ -227,13 +241,13 @@ plt.gca().set_xlim(0, im.shape[1])
 # set the y-axis range and flip the y-axis
 plt.gca().set_ylim(im.shape[0], 0)
 
-plt.savefig('bond_strength_map.png',bbox_inches='tight')
+plt.savefig(test_data_path+'bond_strength_map.png',bbox_inches='tight')
 
 # plot a histogram of the "bond strengths"
 plt.figure(4)
 #plt.subplot(235)
 plt.hist(line_colors,bins=len(line_colors)/4)
-plt.savefig('bond_strength_hist.png', bbox_inches='tight')
+plt.savefig(test_data_path+'bond_strength_hist.png', bbox_inches='tight')
 
 # show it off
-plt.show()
+#plt.show()
