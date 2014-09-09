@@ -3,19 +3,39 @@
 # Reference: Mickel, Walter, et al. "Shortcomings of the bond orientational order parameters for the analysis of disordered particulate matter." The Journal of chemical physics (2013)
 # 20140902 Kevin Whitham
 
+# for calculating facet angles
 from math import hypot
 from math import acos
+
+# general math
 import numpy as np
 from scipy import special as sp
 from scipy.spatial import distance_matrix
+
+# plotting
 import matplotlib.pyplot as plt
-from scipy.spatial import Voronoi
 from matplotlib.collections import PatchCollection
 from matplotlib.collections import LineCollection
 from matplotlib.patches import Polygon
-from scipy.spatial import Delaunay
 from matplotlib.colors import LinearSegmentedColormap
-#from scipy.spatial import delaunay_plot_2d
+
+# Voronoi
+from scipy.spatial import Voronoi
+
+# for finding particle centers, diameters, etc.
+from skimage.measure import regionprops
+from skimage.filter import threshold_otsu,threshold_adaptive
+from skimage.morphology import watershed, remove_small_objects
+from skimage.feature import peak_local_max
+from scipy import ndimage
+
+# for command line interface
+import argparse
+from skimage import io as skimio
+from os import path
+
+# for matching the scale bar
+from skimage.feature import match_template
 
 # returns the angle in radians of the interior angle made by 3 points
 def angle(pt1, pt2, pt3):
