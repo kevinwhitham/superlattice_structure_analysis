@@ -237,8 +237,22 @@ implot = plt.imshow(im)
 implot.set_cmap('gray')
 
 # import the points to analyze
-test_data_path = '../test_data/'
-pts = np.loadtxt(test_data_path+'ustem_XY.txt',skiprows=1,usecols=(1,2),ndmin=2)
+#input_data_path = '../test_data/input/'
+output_data_path = path.dirname(args.img_file)
+filename = str.split(path.basename(args.img_file),'.')[0]
+
+pixels_per_nm = get_image_scale(im)
+
+background = 1
+if args.black:
+    background = 0
+
+if len(args.pts_file) == 0:
+    # find the centroid of each particle in the image
+    pts = get_particle_centers(im,background,pixels_per_nm)
+else:
+    print("User specified points")
+    pts = np.loadtxt(args.pts_file,skiprows=1,usecols=(1,2),ndmin=2)
 
 # ideal square grid test case
 #x = np.linspace(-0.5, 2.5, 5)
@@ -252,16 +266,12 @@ vor = Voronoi(pts)
 plt.figure(1)
 #plt.subplot(231)
 
-im = plt.imread(test_data_path+'ustem_binary.tif')
-implot = plt.imshow(im)
-
 bond_order = 4
 
-# minkowski_structure_metric returns a list with metric,region_index,bond_strengths
+# minkowski_structure_metric returns a list with metric,region_index,bond_widths
 msm = minkowski_structure_metric(vor,bond_order,(im.shape[1],im.shape[0]))
 
 # get a color map for mapping metric values to colors of some color scale
-#colormap = plt.get_cmap('spectral')
 value_rgb_pairs = []
 rgb_array = np.asarray([[0,0,0],[255,0,0],[255,50,34],[255,109,59],[255,177,102],[255,220,125],[255,245,160],[255,245,192],[255,255,255],[212,251,255],[160,253,255],[120,226,255],[81,177,255],[55,127,255],[31,81,255],[0,13,255]],dtype='f4')
 rgb_array /= 255
@@ -270,9 +280,9 @@ rgb_list_norm = []
 for value, color in zip(np.linspace(0,1,16),rgb_array):
     value_rgb_pairs.append((value,color))
     
-custom_color_map = LinearSegmentedColormap.from_list(name="custom", colors=value_rgb_pairs, N=16)
+custom_colormap = LinearSegmentedColormap.from_list(name="custom", colors=value_rgb_pairs, N=16)
 
-symmetry_colormap = plt.get_cmap('spectral')
+symmetry_colormap = plt.get_cmap('RdBu_r')
     
 cell_patches = []
 for metric,region_index in msm:
@@ -296,14 +306,16 @@ plt.gca().set_xlim(0, im.shape[1])
 plt.gca().set_ylim(im.shape[0], 0)
 
 # save this plot to a file
-plt.savefig(test_data_path+'q'+str(bond_order)+'_map.png',bbox_inches='tight')
+plt.gca().set_axis_off()
+plt.gca().set_title('q'+str(bond_order))
+plt.savefig(output_data_path+'/'+filename+'_q'+str(bond_order)+'_map.pdf',bbox_inches='tight')
 
 # plot a histogram of the Minkowski structure metrics
 plt.figure(2)
 #plt.subplot(234)
 
-plt.hist([metric for metric,_ in msm],bins=len(msm)/4)
-plt.savefig(test_data_path+'q'+str(bond_order)+'hist.png', bbox_inches='tight')
+plt.hist([metric for metric,_ in msm],bins=len(msm)/2)
+plt.savefig(output_data_path+'/'+filename+'_q'+str(bond_order)+'hist.png', bbox_inches='tight')
 
 
 # Calculate and plot the "bond strengths"
@@ -312,14 +324,16 @@ plt.figure(3)
 
 # add the TEM image as the background
 implot = plt.imshow(im)
+implot.set_cmap('gray')
 
-bond_color_map = plt.get_cmap('hot')
+bond_color_map = custom_colormap
 
-# bond_strenths is a 2D symmetric array where bond_strengths[i,j] is the bond strength
-# between input points i and j
-bond_strengths = np.zeros((len(pts),len(pts)))
+# bond_strenths is a 2D symmetric array where bond_widths[i,j] is the bond strength
+# between input point i and input point j
+bond_widths = np.zeros((len(pts),len(pts)))
 line_segments = []
-line_colors = []
+bond_width_list = []
+nn_dist = []
 
 # to draw the bonds between points
 for ridge_vert_indices,input_pair_indices in zip(vor.ridge_vertices,vor.ridge_points):
@@ -337,23 +351,42 @@ for ridge_vert_indices,input_pair_indices in zip(vor.ridge_vertices,vor.ridge_po
             # this is crude...lots of assumptions here
             # may not work well unless the im array is nearly binary because long facets
             # will always contribute more than small ones even if there is little material
-            x_dist = np.abs(vertex2[0]-vertex1[0])+1
-            y_dist = np.abs(vertex2[1]-vertex1[1])+1
-            range_len = np.max((x_dist,y_dist))
+            facet_x_dist = np.abs(vertex2[0]-vertex1[0])+1
+            facet_y_dist = np.abs(vertex2[1]-vertex1[1])+1
+            range_len = np.max((facet_x_dist,facet_y_dist))
             x_range = np.linspace(vertex1[0],vertex2[0],num=range_len,dtype='i4')
             y_range = np.linspace(vertex1[1],vertex2[1],num=range_len,dtype='i4')
 
-            bond_strengths[input_pair_indices[0],input_pair_indices[1]] = np.sum(im[y_range,x_range])
-            bond_strengths[input_pair_indices[1],input_pair_indices[0]] = bond_strengths[input_pair_indices[0],input_pair_indices[1]]
+            # save the nearest neighbor distance
+            input_pt1 = pts[input_pair_indices[0]]
+            input_pt2 = pts[input_pair_indices[1]]
+            nn_x_dist = np.abs(input_pt1[0]-input_pt2[0])
+            nn_y_dist = np.abs(input_pt1[1]-input_pt2[1])
+            nn_dist.append(np.sqrt(nn_x_dist**2 + nn_y_dist**2)/pixels_per_nm)
+
+            # should fit a square function to get the actual width
+            bond_widths[input_pair_indices[0],input_pair_indices[1]] = np.sum(im[y_range,x_range])
+            bond_widths[input_pair_indices[1],input_pair_indices[0]] = bond_widths[input_pair_indices[0],input_pair_indices[1]]
     
             # make the lines
-            if bond_strengths[input_pair_indices[0],input_pair_indices[1]] > 50:
-                line_segments.append(np.asarray([pts[input_pair_indices[0]],pts[input_pair_indices[1]]]))
-                line_colors.append(bond_strengths[input_pair_indices[0],input_pair_indices[1]])
+            line_segments.append(np.asarray([pts[input_pair_indices[0]],pts[input_pair_indices[1]]]))
+            bond_width_list.append(bond_widths[input_pair_indices[0],input_pair_indices[1]])
 
-lc = LineCollection(line_segments,cmap=bond_color_map)
-lc.set_array(np.asarray(line_colors))
-lc.set_linewidth(2)
+bond_threshold = threshold_otsu(bond_widths)
+
+bond_width_list_filtered = []
+line_segments_filtered = []
+nn_dist_filtered = []
+
+for width,segment,nn in zip(bond_width_list,line_segments,nn_dist):
+    if width >= bond_threshold:
+        bond_width_list_filtered.append(width)
+        line_segments_filtered.append(segment)
+        nn_dist_filtered.append(nn)
+
+lc = LineCollection(line_segments_filtered,cmap=bond_color_map)
+lc.set_array(np.asarray(bond_width_list_filtered))
+lc.set_linewidth(1)
 plt.gca().add_collection(lc)
 plt.colorbar(lc)
 
@@ -363,13 +396,40 @@ plt.gca().set_xlim(0, im.shape[1])
 # set the y-axis range and flip the y-axis
 plt.gca().set_ylim(im.shape[0], 0)
 
-plt.savefig(test_data_path+'bond_strength_map.png',bbox_inches='tight')
+plt.savefig(output_data_path+'/'+filename+'_bond_map.pdf',bbox_inches='tight')
+
+# save a version of the bond map without the image background
+plt.figure(4)
+plt.gca().add_collection(lc)
+plt.colorbar(lc)
+plt.savefig(output_data_path+'/'+filename+'_bond_map_nobg.pdf',bbox_inches='tight')
+
+# make a map of the nn distances
+plt.figure(5)
+nn_dist_cmap = plt.get_cmap('RdBu_r')
+implot = plt.imshow(im)
+implot.set_cmap('gray')
+nn_lc = LineCollection(line_segments_filtered,cmap=nn_dist_cmap)
+nn_lc.set_array(np.asarray(nn_dist_filtered))
+nn_lc.set_linewidth(1)
+plt.gca().add_collection(nn_lc)
+plt.colorbar(nn_lc)
+plt.savefig(output_data_path+'/'+filename+'_nn_dist_map.pdf',bbox_inches='tight')
 
 # plot a histogram of the "bond strengths"
-plt.figure(4)
+plt.figure(6)
 #plt.subplot(235)
-plt.hist(line_colors,bins=len(line_colors)/4)
-plt.savefig(test_data_path+'bond_strength_hist.png', bbox_inches='tight')
+plt.hist(bond_width_list,bins=len(bond_width_list)/4)
+plt.ylabel('Count')
+plt.xlabel('Sum of pixel values')
+plt.savefig(output_data_path+'/'+filename+'_bond_hist.png', bbox_inches='tight')
 
-# show it off
+# plot a histogram of the nearest neighbor distances
+plt.figure(7)
+plt.hist(nn_dist,bins=len(nn_dist)/4)
+plt.ylabel('Count')
+plt.xlabel('Neighbor Distance (nm)')
+plt.savefig(output_data_path+'/'+filename+'_nn_dist_hist.png', bbox_inches='tight')
+
+# show it all
 #plt.show()
