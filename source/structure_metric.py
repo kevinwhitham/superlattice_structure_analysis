@@ -179,6 +179,43 @@ def get_particle_centers(im, background, pixels_per_nm):
         pts.append(props.centroid[::-1])
 
     return np.asarray(pts)
+
+def get_image_scale(im):
+
+    input_path = '../test_data/input/'
+
+    # images of scale bars to match with the input image
+    # second element is the scale in units of pixels/nm
+    scale_bars = []
+    scale_bars.append([skimio.imread(input_path+'Scale_1p425px_nm.tif',as_grey=True),1.425])
+    scale_bars.append([skimio.imread(input_path+'Scale_3p44px_nm.tif',as_grey=True),3.44])
+    scale_bars.append([skimio.imread(input_path+'Scale_5p14px_nm.tif',as_grey=True),5.14])
+    scale_bars.append([skimio.imread(input_path+'Scale_2px_nm.tif',as_grey=True),2])
+    scale_bars.append([skimio.imread(input_path+'Scale_9p4px_nm.tif',as_grey=True),9.4])
+
+    match_score = []
+
+    for scale_bar,pixels_per_nm in scale_bars:
+
+        result = match_template(im,template=scale_bar)
+
+        ij = np.unravel_index(np.argmax(result), result.shape)
+        row, col = ij
+
+        match_score.append(result[row][col])
+
+    return scale_bars[np.argmax(match_score)][1]
+
+parser = argparse.ArgumentParser()
+parser.add_argument("img_file",help="image file to analyze")
+parser.add_argument("pts_file",nargs='?',help="XY point data file",default='')
+parser.add_argument("-b","--black", help="black background", action='store_true')
+args = parser.parse_args()
+
+im = skimio.imread(args.img_file,as_grey=True)
+implot = plt.imshow(im)
+implot.set_cmap('gray')
+
 # import the points to analyze
 test_data_path = '../test_data/'
 pts = np.loadtxt(test_data_path+'ustem_XY.txt',skiprows=1,usecols=(1,2),ndmin=2)
