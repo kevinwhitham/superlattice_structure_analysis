@@ -134,28 +134,13 @@ def minkowski_structure_metric(vor,l,limits):
                 msm.append([np.sqrt(4*np.pi/(2*l+1) * sum2),region_index-1])
     return msm
 
-def get_particle_centers(im, background, pixels_per_nm):
+def make_binary_image(im, white_background, min_feature_size):
 
-    # convert to binary by thresholding
-    # thresh = threshold_isodata(im)
-    #
-    # if background:
-    #     # white background
-    #     binary = im < thresh
-    # else:
-    #     binary = im > thresh
-
-    if background:
+    if white_background:
         im = np.abs(im-np.max(im))
 
-    if pixels_per_nm == 0:
-        # default value
-        pixels_per_nm = 5
-
-    min_feature_size = int(pixels_per_nm*2)
-
     # the block size should be large enough to include 4 to 9 particles
-    binary = threshold_adaptive(im,block_size=20*min_feature_size)
+    binary = threshold_adaptive(im,block_size=10*min_feature_size)
 
     binary = remove_small_objects(binary,min_size=min_feature_size-1)
 
@@ -165,6 +150,18 @@ def get_particle_centers(im, background, pixels_per_nm):
 
     # 3 iterations is better for large particles with low contrast
     binary = ndimage.binary_closing(binary,iterations=1)
+
+    return binary
+
+def get_particle_centers(im, white_background, pixels_per_nm):
+
+    if pixels_per_nm == 0:
+        # default value
+        pixels_per_nm = 5
+
+    min_feature_size = int(pixels_per_nm*2)
+
+    binary = make_binary_image(im, white_background, min_feature_size)
 
     # create a distance map to find the particle centers
     # as the points with maximal distance to the background
@@ -250,6 +247,10 @@ if args.black:
 if len(args.pts_file) == 0:
     # find the centroid of each particle in the image
     pts = get_particle_centers(im,background,pixels_per_nm)
+
+    # save the input points to a file
+    header_string = 'Particle centroids\nX (pixel)\tY (pixel)'
+    np.savetxt(output_data_path+'/'+filename+'_centroids.txt',pts,fmt='%.4e',delimiter='\t',header=header_string)
 else:
     print("User specified points")
     pts = np.loadtxt(args.pts_file,skiprows=1,usecols=(1,2),ndmin=2)
@@ -268,7 +269,7 @@ plt.figure(1)
 
 bond_order = 4
 
-# minkowski_structure_metric returns a list with metric,region_index,bond_widths
+# minkowski_structure_metric returns a list with metric,region_index
 msm = minkowski_structure_metric(vor,bond_order,(im.shape[1],im.shape[0]))
 
 # get a color map for mapping metric values to colors of some color scale
@@ -312,18 +313,23 @@ plt.savefig(output_data_path+'/'+filename+'_q'+str(bond_order)+'_map.pdf',bbox_i
 
 # plot a histogram of the Minkowski structure metrics
 plt.figure(2)
-#plt.subplot(234)
+plt.hist([metric for metric,_ in msm],bins=len(msm)/4)
+plt.savefig(output_data_path+'/'+filename+'_q'+str(bond_order)+'_hist.png', bbox_inches='tight')
 
-plt.hist([metric for metric,_ in msm],bins=len(msm)/2)
-plt.savefig(output_data_path+'/'+filename+'_q'+str(bond_order)+'hist.png', bbox_inches='tight')
+# save the metrics to a file
+header_string =     str(bond_order)+'-fold Minkowski metric (q'+str(bond_order)+')\n'
+header_string +=    'Reference: Mickel, Walter, et al. The Journal of Chemical Physics (2013)\n'
+header_string +=    'q'+str(bond_order)+'\tindex'
+np.savetxt(output_data_path+'/'+filename+'_q'+str(bond_order)+'_data.txt',msm,fmt='%.4e',delimiter='\t',header=header_string)
 
 
 # Calculate and plot the "bond strengths"
 plt.figure(3)
-#plt.subplot(232)
+
+binary_im = make_binary_image(im,background,0.306*pixels_per_nm)
 
 # add the TEM image as the background
-implot = plt.imshow(im)
+implot = plt.imshow(binary_im)
 implot.set_cmap('gray')
 
 bond_color_map = custom_colormap
@@ -351,6 +357,8 @@ for ridge_vert_indices,input_pair_indices in zip(vor.ridge_vertices,vor.ridge_po
             # this is crude...lots of assumptions here
             # may not work well unless the im array is nearly binary because long facets
             # will always contribute more than small ones even if there is little material
+            # would be better to use a binary image and assume all non-zero pixels are connected
+            # or fit a function to find the width of the bridge
             facet_x_dist = np.abs(vertex2[0]-vertex1[0])+1
             facet_y_dist = np.abs(vertex2[1]-vertex1[1])+1
             range_len = np.max((facet_x_dist,facet_y_dist))
@@ -365,7 +373,7 @@ for ridge_vert_indices,input_pair_indices in zip(vor.ridge_vertices,vor.ridge_po
             nn_dist.append(np.sqrt(nn_x_dist**2 + nn_y_dist**2)/pixels_per_nm)
 
             # should fit a square function to get the actual width
-            bond_widths[input_pair_indices[0],input_pair_indices[1]] = np.sum(im[y_range,x_range])
+            bond_widths[input_pair_indices[0],input_pair_indices[1]] = np.sum(binary_im[y_range,x_range])/pixels_per_nm
             bond_widths[input_pair_indices[1],input_pair_indices[0]] = bond_widths[input_pair_indices[0],input_pair_indices[1]]
     
             # make the lines
@@ -418,11 +426,16 @@ plt.savefig(output_data_path+'/'+filename+'_nn_dist_map.pdf',bbox_inches='tight'
 
 # plot a histogram of the "bond strengths"
 plt.figure(6)
-#plt.subplot(235)
-plt.hist(bond_width_list,bins=len(bond_width_list)/4)
+
+plt.hist(bond_width_list_filtered,bins=len(bond_width_list_filtered)/4)
 plt.ylabel('Count')
-plt.xlabel('Sum of pixel values')
+plt.xlabel('Width (nm)')
+plt.gca().set_title('Bond Widths (filtered)')
 plt.savefig(output_data_path+'/'+filename+'_bond_hist.png', bbox_inches='tight')
+
+header_string =     'Bond widths\n'
+header_string +=    'width (nm)'
+np.savetxt(output_data_path+'/'+filename+'_bond_data.txt',bond_width_list,fmt='%.4e',delimiter='\t',header=header_string)
 
 # plot a histogram of the nearest neighbor distances
 plt.figure(7)
@@ -430,6 +443,10 @@ plt.hist(nn_dist,bins=len(nn_dist)/4)
 plt.ylabel('Count')
 plt.xlabel('Neighbor Distance (nm)')
 plt.savefig(output_data_path+'/'+filename+'_nn_dist_hist.png', bbox_inches='tight')
+
+header_string =     'Nearest neighbor distances\n'
+header_string +=     'distance (nm)'
+np.savetxt(output_data_path+'/'+filename+'_nn_dist_data.txt',nn_dist,fmt='%.4e',delimiter='\t',header=header_string)
 
 # show it all
 #plt.show()
