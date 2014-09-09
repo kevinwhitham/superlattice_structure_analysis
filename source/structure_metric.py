@@ -114,6 +114,71 @@ def minkowski_structure_metric(vor,l,limits):
                 msm.append([np.sqrt(4*np.pi/(2*l+1) * sum2),region_index-1])
     return msm
 
+def get_particle_centers(im, background, pixels_per_nm):
+
+    # convert to binary by thresholding
+    # thresh = threshold_isodata(im)
+    #
+    # if background:
+    #     # white background
+    #     binary = im < thresh
+    # else:
+    #     binary = im > thresh
+
+    if background:
+        im = np.abs(im-np.max(im))
+
+    if pixels_per_nm == 0:
+        # default value
+        pixels_per_nm = 5
+
+    min_feature_size = int(pixels_per_nm*2)
+
+    # the block size should be large enough to include 4 to 9 particles
+    binary = threshold_adaptive(im,block_size=20*min_feature_size)
+
+    binary = remove_small_objects(binary,min_size=min_feature_size-1)
+
+    # dilation of the binary image helps congeal large particles with low contrast
+    # that get broken up by threshold
+    #binary = ndimage.binary_dilation(binary,iterations=1)
+
+    # 3 iterations is better for large particles with low contrast
+    binary = ndimage.binary_closing(binary,iterations=1)
+
+    # create a distance map to find the particle centers
+    # as the points with maximal distance to the background
+    distance = ndimage.distance_transform_edt(binary)
+
+    # dilate the distance map to merge close peaks (merges multiple peaks in one particle)
+    distance = ndimage.grey_dilation(distance,size=min_feature_size)
+
+    # min_distance=5 for large particles
+    local_maxi = peak_local_max(distance,indices=False,min_distance=min_feature_size)
+    markers = ndimage.label(local_maxi)[0]
+
+    labels = watershed(-distance, markers, mask=binary)
+
+    # DEBUG
+    # plt.figure(2)
+    # plt.imshow(binary)
+    # plt.figure(3)
+    # plt.imshow(distance)
+    # #plt.figure(4)
+    # plt.imshow(markers,cmap=plt.cm.spectral,alpha=0.5)
+    # plt.figure(5)
+    # plt.imshow(labels,cmap=plt.cm.prism)
+    # plt.show()
+
+    # get the particle centroids
+    regions = regionprops(labels)
+    pts = []
+    for props in regions:
+        # centroid is [row, col] we want [col, row] aka [X,Y]
+        # so reverse the order
+        pts.append(props.centroid[::-1])
+
+    return np.asarray(pts)
 # import the points to analyze
 test_data_path = '../test_data/'
 pts = np.loadtxt(test_data_path+'ustem_XY.txt',skiprows=1,usecols=(1,2),ndmin=2)
