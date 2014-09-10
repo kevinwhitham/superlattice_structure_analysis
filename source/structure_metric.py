@@ -241,7 +241,8 @@ parser.add_argument("-b","--black", help="black background", action='store_true'
 args = parser.parse_args()
 
 im = skimio.imread(args.img_file,as_grey=True)
-implot = plt.imshow(im)
+im_original = im
+implot = plt.imshow(im_original)
 implot.set_cmap('gray')
 
 # import the points to analyze
@@ -364,7 +365,7 @@ binary_im = make_binary_image(im,background,2*pixels_per_nm)
 #     binary_im = im > thresh
 
 # add the TEM image as the background
-implot = plt.imshow(im)
+implot = plt.imshow(im_original)
 implot.set_cmap('gray')
 
 bond_color_map = custom_colormap
@@ -461,7 +462,7 @@ plt.savefig(output_data_path+'/'+filename+'_bond_map_binary.pdf',bbox_inches='ti
 # make a map of the nn distances
 plt.figure(5)
 nn_dist_cmap = plt.get_cmap('RdBu_r')
-implot = plt.imshow(im)
+implot = plt.imshow(im_original)
 implot.set_cmap('gray')
 nn_lc = LineCollection(line_segments_filtered,cmap=nn_dist_cmap)
 nn_lc.set_array(np.asarray(nn_dist_filtered))
