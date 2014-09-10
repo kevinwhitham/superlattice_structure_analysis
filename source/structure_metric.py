@@ -140,7 +140,7 @@ def make_binary_image(im, white_background, min_feature_size):
         im = np.abs(im-np.max(im))
 
     # the block size should be large enough to include 4 to 9 particles
-    binary = threshold_adaptive(im,block_size=10*min_feature_size)
+    binary = threshold_adaptive(im,block_size=50*min_feature_size)
 
     # formerly min_size=min_feature_size-1
     binary = remove_small_objects(binary,min_size=min_feature_size/2)
@@ -160,7 +160,8 @@ def get_particle_centers(im, white_background, pixels_per_nm):
         # default value
         pixels_per_nm = 5
 
-    min_feature_size = int(pixels_per_nm*2)
+    # minimum size object to look for
+    min_feature_size = int(2*pixels_per_nm)
 
     binary = make_binary_image(im, white_background, min_feature_size)
 
