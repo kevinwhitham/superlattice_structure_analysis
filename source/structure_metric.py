@@ -201,6 +201,9 @@ def get_particle_centers(im, white_background, pixels_per_nm):
 
 def get_image_scale(im):
 
+    scale = 0
+    bar_width = 0
+
     input_path = '../test_data/input/'
 
     # images of scale bars to match with the input image
@@ -223,7 +226,12 @@ def get_image_scale(im):
 
         match_score.append(result[row][col])
 
-    return scale_bars[np.argmax(match_score)][1]
+    # the match score should be about 0.999999
+    if np.max(match_score) > 0.9:
+        scale = scale_bars[np.argmax(match_score)][1]
+        bar_width = scale_bars[np.argmax(match_score)][0].shape[1]
+
+    return [scale,((985,1369-bar_width),(1025,1369))]
 
 parser = argparse.ArgumentParser()
 parser.add_argument("img_file",help="image file to analyze")
@@ -241,17 +249,27 @@ implot.set_cmap('gray')
 output_data_path = path.dirname(args.img_file)
 filename = str.split(path.basename(args.img_file),'.')[0]
 
-pixels_per_nm = args.pix_per_nm
-
-if pixels_per_nm == 0:
-    pixels_per_nm = get_image_scale(im)
-else:
-    print("User specified scale: "+str(pixels_per_nm)+" pixels per nm")
-
 background = 1
 if args.black:
     background = 0
     print("User specified black background")
+
+pixels_per_nm = args.pix_per_nm
+
+if pixels_per_nm == 0:
+
+    pixels_per_nm,bar_corners = get_image_scale(im)
+
+    if not pixels_per_nm == 0:
+
+        # remove the scalebar from the image
+        if background:
+            im[bar_corners[0][0]:bar_corners[1][0]+1,bar_corners[0][1]:bar_corners[1][1]+1] = np.max(im)
+        else:
+            im[bar_corners[0][0]:bar_corners[1][0]+1,bar_corners[0][1]:bar_corners[1][1]+1] = 0
+
+else:
+    print("User specified scale: "+str(pixels_per_nm)+" pixels per nm")
 
 if len(args.pts_file) == 0:
     # find the centroid of each particle in the image
