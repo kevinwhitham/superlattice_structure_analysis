@@ -24,7 +24,7 @@ from scipy.spatial import Voronoi
 
 # for finding particle centers, diameters, etc.
 from skimage.measure import regionprops
-from skimage.filter import threshold_otsu,threshold_adaptive
+from skimage.filter import threshold_otsu,threshold_adaptive, threshold_isodata
 from skimage.morphology import watershed, remove_small_objects
 from skimage.feature import peak_local_max
 from scipy import ndimage
@@ -142,11 +142,12 @@ def make_binary_image(im, white_background, min_feature_size):
     # the block size should be large enough to include 4 to 9 particles
     binary = threshold_adaptive(im,block_size=10*min_feature_size)
 
-    binary = remove_small_objects(binary,min_size=min_feature_size-1)
+    # formerly min_size=min_feature_size-1
+    binary = remove_small_objects(binary,min_size=min_feature_size/2)
 
     # dilation of the binary image helps congeal large particles with low contrast
     # that get broken up by threshold
-    #binary = ndimage.binary_dilation(binary,iterations=1)
+    #binary = ndimage.binary_dilation(binary,iterations=3)
 
     # 3 iterations is better for large particles with low contrast
     binary = ndimage.binary_closing(binary,iterations=1)
@@ -226,6 +227,7 @@ def get_image_scale(im):
 parser = argparse.ArgumentParser()
 parser.add_argument("img_file",help="image file to analyze")
 parser.add_argument("pts_file",nargs='?',help="XY point data file",default='')
+parser.add_argument("pix_per_nm",nargs='?',help="scale in pixels per nm",default=0.0,type=float)
 parser.add_argument("-b","--black", help="black background", action='store_true')
 args = parser.parse_args()
 
@@ -238,11 +240,17 @@ implot.set_cmap('gray')
 output_data_path = path.dirname(args.img_file)
 filename = str.split(path.basename(args.img_file),'.')[0]
 
-pixels_per_nm = get_image_scale(im)
+pixels_per_nm = args.pix_per_nm
+
+if pixels_per_nm == 0:
+    pixels_per_nm = get_image_scale(im)
+else:
+    print("User specified scale: "+str(pixels_per_nm)+" pixels per nm")
 
 background = 1
 if args.black:
     background = 0
+    print("User specified black background")
 
 if len(args.pts_file) == 0:
     # find the centroid of each particle in the image
@@ -314,6 +322,8 @@ plt.savefig(output_data_path+'/'+filename+'_q'+str(bond_order)+'_map.pdf',bbox_i
 # plot a histogram of the Minkowski structure metrics
 plt.figure(2)
 plt.hist([metric for metric,_ in msm],bins=len(msm)/4)
+plt.xlabel('q'+str(bond_order))
+plt.ylabel('Count')
 plt.savefig(output_data_path+'/'+filename+'_q'+str(bond_order)+'_hist.png', bbox_inches='tight')
 
 # save the metrics to a file
@@ -326,10 +336,16 @@ np.savetxt(output_data_path+'/'+filename+'_q'+str(bond_order)+'_data.txt',msm,fm
 # Calculate and plot the "bond strengths"
 plt.figure(3)
 
-binary_im = make_binary_image(im,background,0.306*pixels_per_nm)
+binary_im = make_binary_image(im,background,2*pixels_per_nm)
+# thresh = threshold_otsu(im)
+#
+# if background:
+#     binary_im = im < thresh
+# else:
+#     binary_im = im > thresh
 
 # add the TEM image as the background
-implot = plt.imshow(binary_im)
+implot = plt.imshow(im)
 implot.set_cmap('gray')
 
 bond_color_map = custom_colormap
@@ -380,14 +396,16 @@ for ridge_vert_indices,input_pair_indices in zip(vor.ridge_vertices,vor.ridge_po
             line_segments.append(np.asarray([pts[input_pair_indices[0]],pts[input_pair_indices[1]]]))
             bond_width_list.append(bond_widths[input_pair_indices[0],input_pair_indices[1]])
 
-bond_threshold = threshold_otsu(bond_widths)
+#bond_threshold = threshold_otsu(bond_widths)
 
 bond_width_list_filtered = []
 line_segments_filtered = []
 nn_dist_filtered = []
 
+# create lists of line segments and properties excluding those
+# below the threshold
 for width,segment,nn in zip(bond_width_list,line_segments,nn_dist):
-    if width >= bond_threshold:
+    if not width == 0:
         bond_width_list_filtered.append(width)
         line_segments_filtered.append(segment)
         nn_dist_filtered.append(nn)
@@ -396,7 +414,7 @@ lc = LineCollection(line_segments_filtered,cmap=bond_color_map)
 lc.set_array(np.asarray(bond_width_list_filtered))
 lc.set_linewidth(1)
 plt.gca().add_collection(lc)
-plt.colorbar(lc)
+bond_color_bar = plt.colorbar(lc)
 
 # set the x axis range
 plt.gca().set_xlim(0, im.shape[1])
@@ -404,13 +422,22 @@ plt.gca().set_xlim(0, im.shape[1])
 # set the y-axis range and flip the y-axis
 plt.gca().set_ylim(im.shape[0], 0)
 
+bond_color_bar.ax.set_ylabel('Bond Width (nm)')
+plt.gca().set_axis_off()
 plt.savefig(output_data_path+'/'+filename+'_bond_map.pdf',bbox_inches='tight')
 
-# save a version of the bond map without the image background
+# save a version of the bond map with the binary image background
 plt.figure(4)
-plt.gca().add_collection(lc)
-plt.colorbar(lc)
-plt.savefig(output_data_path+'/'+filename+'_bond_map_nobg.pdf',bbox_inches='tight')
+binary_plot = plt.imshow(binary_im)
+binary_plot.set_cmap('gray')
+bin_lc = LineCollection(line_segments,cmap=bond_color_map)
+bin_lc.set_array(np.asarray(bond_width_list))
+bin_lc.set_linewidth(1)
+plt.gca().add_collection(bin_lc)
+bond_color_bar = plt.colorbar(lc)
+bond_color_bar.ax.set_ylabel('Bond Width (nm)')
+plt.gca().set_axis_off()
+plt.savefig(output_data_path+'/'+filename+'_bond_map_binary.pdf',bbox_inches='tight')
 
 # make a map of the nn distances
 plt.figure(5)
@@ -421,7 +448,10 @@ nn_lc = LineCollection(line_segments_filtered,cmap=nn_dist_cmap)
 nn_lc.set_array(np.asarray(nn_dist_filtered))
 nn_lc.set_linewidth(1)
 plt.gca().add_collection(nn_lc)
-plt.colorbar(nn_lc)
+nn_color_bar = plt.colorbar(nn_lc)
+nn_color_bar.ax.set_ylabel('NN Dist. (nm)')
+plt.gca().set_axis_off()
+plt.gca().set_title('Neighbor Distance')
 plt.savefig(output_data_path+'/'+filename+'_nn_dist_map.pdf',bbox_inches='tight')
 
 # plot a histogram of the "bond strengths"
