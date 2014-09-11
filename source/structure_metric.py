@@ -235,8 +235,12 @@ def get_image_scale(im):
 
     # the match score should be about 0.999999
     if np.max(match_score) > 0.9:
+
         scale = scale_bars[np.argmax(match_score)][1]
         bar_width = scale_bars[np.argmax(match_score)][0].shape[1]
+
+    else:
+        print('No scale bar found')
 
     return [scale,((985,1369-bar_width),(1025,1369))]
 
@@ -395,7 +399,8 @@ bond_color_map = custom_colormap
 bond_widths = np.zeros((len(pts),len(pts)))
 line_segments = []
 bond_width_list = []
-nn_dist = []
+nn_dist_list = []
+nn_dist = np.zeros((len(pts),len(pts)))
 
 # to draw the bonds between points
 for ridge_vert_indices,input_pair_indices in zip(vor.ridge_vertices,vor.ridge_points):
@@ -426,15 +431,21 @@ for ridge_vert_indices,input_pair_indices in zip(vor.ridge_vertices,vor.ridge_po
             input_pt2 = pts[input_pair_indices[1]]
             nn_x_dist = np.abs(input_pt1[0]-input_pt2[0])
             nn_y_dist = np.abs(input_pt1[1]-input_pt2[1])
-            nn_dist.append(np.sqrt(nn_x_dist**2 + nn_y_dist**2)/pixels_per_nm)
+
+            nn_distance = np.sqrt(nn_x_dist**2 + nn_y_dist**2)/pixels_per_nm
+            nn_dist[input_pair_indices[0],input_pair_indices[1]] = nn_distance
+            nn_dist[input_pair_indices[1],input_pair_indices[0]] = nn_distance
+            nn_dist_list.append(nn_distance)
 
             # should fit a square function to get the actual width
-            bond_widths[input_pair_indices[0],input_pair_indices[1]] = np.sum(binary_im[y_range,x_range])/pixels_per_nm
-            bond_widths[input_pair_indices[1],input_pair_indices[0]] = bond_widths[input_pair_indices[0],input_pair_indices[1]]
+            bond_width = np.sum(binary_im[y_range,x_range])/pixels_per_nm
+            bond_widths[input_pair_indices[0],input_pair_indices[1]] = bond_width
+            bond_widths[input_pair_indices[1],input_pair_indices[0]] = bond_width
+            bond_width_list.append(bond_width)
     
             # make the lines
             line_segments.append(np.asarray([pts[input_pair_indices[0]],pts[input_pair_indices[1]]]))
-            bond_width_list.append(bond_widths[input_pair_indices[0],input_pair_indices[1]])
+
 
 #bond_threshold = threshold_otsu(bond_widths)
 
@@ -444,7 +455,7 @@ nn_dist_filtered = []
 
 # create lists of line segments and properties excluding those
 # below the threshold
-for width,segment,nn in zip(bond_width_list,line_segments,nn_dist):
+for width,segment,nn in zip(bond_width_list,line_segments,nn_dist_list):
     if not width == 0:
         bond_width_list_filtered.append(width)
         line_segments_filtered.append(segment)
@@ -503,18 +514,18 @@ plt.xlabel('Width (nm)')
 plt.gca().set_title('Bond Widths (filtered)')
 plt.savefig(output_data_path+'/'+filename+'_bond_hist.png', bbox_inches='tight')
 
-header_string =     'Bond widths\n'
+header_string =     'Bond widths: a symmetric array where array[i,j] = array[j,i] = width of bond between particle i and particle j\n'
 header_string +=    'width (nm)'
-np.savetxt(output_data_path+'/'+filename+'_bond_data.txt',bond_width_list,fmt='%.4e',delimiter='\t',header=header_string)
+np.savetxt(output_data_path+'/'+filename+'_bond_data.txt',bond_widths,fmt='%.4e',delimiter='\t',header=header_string)
 
 # plot a histogram of the nearest neighbor distances
 plt.figure(7)
-plt.hist(nn_dist,bins=len(nn_dist)/4)
+plt.hist(nn_dist_list,bins=len(nn_dist_list)/4)
 plt.ylabel('Count')
 plt.xlabel('Neighbor Distance (nm)')
 plt.savefig(output_data_path+'/'+filename+'_nn_dist_hist.png', bbox_inches='tight')
 
-header_string =     'Nearest neighbor distances\n'
+header_string =     'Nearest neighbors: a symmetric array where array[i,j] = array[j,i] = distance between particle i and particle j\n'
 header_string +=     'distance (nm)'
 np.savetxt(output_data_path+'/'+filename+'_nn_dist_data.txt',nn_dist,fmt='%.4e',delimiter='\t',header=header_string)
 
