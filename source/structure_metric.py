@@ -246,16 +246,105 @@ def get_image_scale(im):
 
     return [scale,((985,1369-bar_width),(1025,1369))]
 
+def create_custom_colormap():
 
+    # get a color map for mapping metric values to colors of some color scale
+    value_rgb_pairs = []
+    rgb_array = np.asarray([[0,0,0],[255,0,0],[255,50,34],[255,109,59],[255,177,102],[255,220,125],[255,245,160],[255,245,192],[255,255,255],[212,251,255],[160,253,255],[120,226,255],[81,177,255],[55,127,255],[31,81,255],[0,13,255]],dtype='f4')
+    rgb_array /= 255
+    rgb_list_norm = []
+
+    for value, color in zip(np.linspace(0,1,16),rgb_array):
+        value_rgb_pairs.append((value,color))
+
+    return LinearSegmentedColormap.from_list(name="custom", colors=value_rgb_pairs, N=16)
+
+def plot_symmetry(im,msm,bond_order,symmetry_colormap):
+
+    cell_patches = []
+    metric_list = []
+    for region_index,metric in msm:
+        metric_list.append(metric)
+        region_index = int(region_index)
+        region = vor.regions[region_index]
+        verts = np.asarray([vor.vertices[index] for index in region])
+        cell_patches.append(Polygon(verts,closed=True,facecolor=symmetry_colormap(metric),edgecolor='k'))
+
+    pc = PatchCollection(cell_patches,match_original=False,cmap=symmetry_colormap,alpha=0.5)
+    pc.set_array(np.asarray(metric_list))
+    plt.gca().add_collection(pc)
+
+    # add the colorbar
+    plt.colorbar(pc)
+
+    # set the limits for the plot
+    # set the x axis range
+    plt.gca().set_xlim(0, im.shape[1])
+
+    # set the y-axis range and flip the y-axis
+    plt.gca().set_ylim(im.shape[0], 0)
+
+    # save this plot to a file
+    plt.gca().set_axis_off()
+    plt.gca().set_title('q'+str(bond_order))
+    plt.savefig(output_data_path+'/'+filename+'_q'+str(bond_order)+'_map.pdf',bbox_inches='tight')
+
+    # plot a histogram of the Minkowski structure metrics
+    plt.figure(2)
+    plt.hist(metric_list,bins=len(msm)/4)
+    plt.xlabel('q'+str(bond_order))
+    plt.ylabel('Count')
+    plt.savefig(output_data_path+'/'+filename+'_q'+str(bond_order)+'_hist.png', bbox_inches='tight')
+
+def plot_bonds(im,line_segments,bond_list):
+
+    # add the TEM image as the background
+    implot = plt.imshow(im)
+    implot.set_cmap('gray')
+
+    bond_color_map = create_custom_colormap()
+
+    lc = LineCollection(line_segments,cmap=bond_color_map)
+    lc.set_array(np.asarray(bond_list))
+    lc.set_linewidth(1)
+    plt.gca().add_collection(lc)
+    bond_color_bar = plt.colorbar(lc)
+
+    # set the x axis range
+    plt.gca().set_xlim(0, im.shape[1])
+
+    # set the y-axis range and flip the y-axis
+    plt.gca().set_ylim(im.shape[0], 0)
+
+    bond_color_bar.ax.set_ylabel('Bond Width (nm)')
+    plt.gca().set_axis_off()
+
+def plot_nn_distance(im,line_segments,nn_distance_list):
+
+    nn_dist_cmap = plt.get_cmap('RdBu_r')
+
+    # show the background image
+    implot = plt.imshow(im)
+    implot.set_cmap('gray')
+
+    nn_lc = LineCollection(line_segments,cmap=nn_dist_cmap)
+    nn_lc.set_array(np.asarray(nn_distance_list))
+    nn_lc.set_linewidth(1)
+    plt.gca().add_collection(nn_lc)
+    nn_color_bar = plt.colorbar(nn_lc)
+    nn_color_bar.ax.set_ylabel('NN Dist. (nm)')
+    plt.gca().set_axis_off()
+    plt.gca().set_title('Neighbor Distance')
 
 
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument("img_file",help="image file to analyze")
-parser.add_argument("pts_file",nargs='?',help="XY point data file",default='')
-parser.add_argument("pix_per_nm",nargs='?',help="scale in pixels per nm",default=0.0,type=float)
-parser.add_argument("-b","--black", help="black background", action='store_true')
+parser.add_argument('-b','--black', help='black background', action='store_true')
+parser.add_argument('-n','--noplot', help='do not plot data', action='store_true')
+parser.add_argument('img_file',help='image file to analyze')
+parser.add_argument('pts_file',nargs='?',help='XY point data file',default='')
+parser.add_argument('pix_per_nm',nargs='?',help='scale in pixels per nm',default=0.0,type=float)
 args = parser.parse_args()
 
 im = skimio.imread(args.img_file,as_grey=True)
@@ -316,95 +405,43 @@ else:
 #xy = np.c_[xx.ravel(), yy.ravel()]
 #pts = xy
 
-plt.figure(0)
-plt.hist(radii,bins=len(radii)/4)
-plt.gca().set_title('Radius')
-plt.xlabel('radius (nm)')
-plt.ylabel('Count')
-plt.savefig(output_data_path+'/'+filename+'_radius_hist.png', bbox_inches='tight')
+if not args.noplot:
+    plt.figure(0)
+    plt.hist(radii,bins=len(radii)/4)
+    plt.gca().set_title('Radius')
+    plt.xlabel('radius (nm)')
+    plt.ylabel('Count')
+    plt.savefig(output_data_path+'/'+filename+'_radius_hist.png', bbox_inches='tight')
 
 vor = Voronoi(pts)
-
-plt.figure(1)
-implot = plt.imshow(im_original)
-implot.set_cmap('gray')
 
 bond_order = 4
 
 # minkowski_structure_metric returns a list with region_index, metric
 msm = minkowski_structure_metric(vor,bond_order,(im.shape[1],im.shape[0]))
 
-# get a color map for mapping metric values to colors of some color scale
-value_rgb_pairs = []
-rgb_array = np.asarray([[0,0,0],[255,0,0],[255,50,34],[255,109,59],[255,177,102],[255,220,125],[255,245,160],[255,245,192],[255,255,255],[212,251,255],[160,253,255],[120,226,255],[81,177,255],[55,127,255],[31,81,255],[0,13,255]],dtype='f4')
-rgb_array /= 255
-rgb_list_norm = []
-    
-for value, color in zip(np.linspace(0,1,16),rgb_array):
-    value_rgb_pairs.append((value,color))
-    
-custom_colormap = LinearSegmentedColormap.from_list(name="custom", colors=value_rgb_pairs, N=16)
+if not args.noplot:
+    plt.figure(1)
+    implot = plt.imshow(im_original)
+    implot.set_cmap('gray')
 
-symmetry_colormap = plt.get_cmap('RdBu_r')
-    
-cell_patches = []
-metric_list = []
-for region_index,metric in msm:
-    metric_list.append(metric)
-    region_index = int(region_index)
-    region = vor.regions[region_index]
-    verts = np.asarray([vor.vertices[index] for index in region])
-    cell_patches.append(Polygon(verts,closed=True,facecolor=symmetry_colormap(metric),edgecolor='k'))
+    symmetry_colormap = plt.get_cmap('RdBu_r')
 
-pc = PatchCollection(cell_patches,match_original=False,cmap=symmetry_colormap,alpha=0.5)
-pc.set_array(np.asarray(metric_list))
-plt.gca().add_collection(pc)
+    plot_symmetry(im,msm,bond_order,symmetry_colormap)
 
-# add the colorbar
-plt.colorbar(pc)
-
-# set the limits for the plot
-# set the x axis range
-plt.gca().set_xlim(0, im.shape[1])
-
-# set the y-axis range and flip the y-axis
-plt.gca().set_ylim(im.shape[0], 0)
-
-# save this plot to a file
-plt.gca().set_axis_off()
-plt.gca().set_title('q'+str(bond_order))
-plt.savefig(output_data_path+'/'+filename+'_q'+str(bond_order)+'_map.pdf',bbox_inches='tight')
-
-# plot a histogram of the Minkowski structure metrics
-plt.figure(2)
-plt.hist(metric_list,bins=len(msm)/4)
-plt.xlabel('q'+str(bond_order))
-plt.ylabel('Count')
-plt.savefig(output_data_path+'/'+filename+'_q'+str(bond_order)+'_hist.png', bbox_inches='tight')
 
 # save the metrics to a file
 header_string =     str(bond_order)+'-fold Minkowski metric (q'+str(bond_order)+')\n'
 header_string +=    'Reference: Mickel, Walter, et al. The Journal of Chemical Physics (2013)\n'
+header_string +=    'length: '+str(len(msm))+'\n'
 header_string +=    'region_index\tq'+str(bond_order)
 np.savetxt(output_data_path+'/'+filename+'_q'+str(bond_order)+'_data.txt',msm,fmt=('%u','%.3f'),delimiter='\t',header=header_string)
 
 
-# Calculate and plot the "bond strengths"
-plt.figure(3)
-
+# Calculate the "bond strengths"
 binary_im = make_binary_image(im,background,2*pixels_per_nm)
-# thresh = threshold_otsu(im)
-#
-# if background:
-#     binary_im = im < thresh
-# else:
-#     binary_im = im > thresh
-
-# add the TEM image as the background
-implot = plt.imshow(im_original)
-implot.set_cmap('gray')
-
-bond_color_map = custom_colormap
+nn_dist_list = []
+bond_list = []
 
 # graphs for random access, Monte Carlo?
 bond_graph = sparse.lil_matrix((len(pts),len(pts)),dtype=np.float32)
@@ -414,9 +451,7 @@ distance_graph = sparse.lil_matrix((len(pts),len(pts)),dtype=np.float32)
 edges = []
 
 # lists for plotting
-bond_list = []
 bond_list_filtered = []
-nn_dist_list = []
 nn_dist_list_filtered= []
 line_segments = []
 line_segments_filtered = []
@@ -472,68 +507,39 @@ for ridge_vert_indices,input_pair_indices in zip(vor.ridge_vertices,vor.ridge_po
                 line_segments_filtered.append(np.asarray([pts[input_pair_indices[0]],pts[input_pair_indices[1]]]))
     
 
+if not args.noplot:
 
-lc = LineCollection(line_segments_filtered,cmap=bond_color_map)
-lc.set_array(np.asarray(bond_list_filtered))
-lc.set_linewidth(1)
-plt.gca().add_collection(lc)
-bond_color_bar = plt.colorbar(lc)
+    plt.figure(3)
+    plot_bonds(im,line_segments_filtered,bond_list_filtered)
+    plt.savefig(output_data_path+'/'+filename+'_bond_map.pdf',bbox_inches='tight')
 
-# set the x axis range
-plt.gca().set_xlim(0, im.shape[1])
+    plt.figure(4)
+    plot_bonds(binary_im,line_segments,bond_list)
+    plt.savefig(output_data_path+'/'+filename+'_bond_map_binary.pdf',bbox_inches='tight')
 
-# set the y-axis range and flip the y-axis
-plt.gca().set_ylim(im.shape[0], 0)
+    # make a map of the nn distances
+    plt.figure(5)
+    plot_nn_distance(im_original,line_segments_filtered,nn_dist_list_filtered)
+    plt.savefig(output_data_path+'/'+filename+'_nn_dist_map.pdf',bbox_inches='tight')
 
-bond_color_bar.ax.set_ylabel('Bond Width (nm)')
-plt.gca().set_axis_off()
-plt.savefig(output_data_path+'/'+filename+'_bond_map.pdf',bbox_inches='tight')
+    # plot a histogram of the "bond strengths"
+    plt.figure(6)
+    plt.hist(bond_list_filtered,bins=len(bond_list_filtered)/4)
+    plt.ylabel('Count')
+    plt.xlabel('Width (nm)')
+    plt.gca().set_title('Bond Widths (filtered)')
+    plt.savefig(output_data_path+'/'+filename+'_bond_hist.png', bbox_inches='tight')
 
-# save a version of the bond map with the binary image background
-plt.figure(4)
-binary_plot = plt.imshow(binary_im)
-binary_plot.set_cmap('gray')
-bin_lc = LineCollection(line_segments,cmap=bond_color_map)
-bin_lc.set_array(np.asarray(bond_list_filtered))
-bin_lc.set_linewidth(1)
-plt.gca().add_collection(bin_lc)
-bond_color_bar = plt.colorbar(bin_lc)
-bond_color_bar.ax.set_ylabel('Bond Width (nm)')
-plt.gca().set_axis_off()
-plt.savefig(output_data_path+'/'+filename+'_bond_map_binary.pdf',bbox_inches='tight')
-
-# make a map of the nn distances
-plt.figure(5)
-nn_dist_cmap = plt.get_cmap('RdBu_r')
-implot = plt.imshow(im_original)
-implot.set_cmap('gray')
-nn_lc = LineCollection(line_segments_filtered,cmap=nn_dist_cmap)
-nn_lc.set_array(np.asarray(nn_dist_list_filtered))
-nn_lc.set_linewidth(1)
-plt.gca().add_collection(nn_lc)
-nn_color_bar = plt.colorbar(nn_lc)
-nn_color_bar.ax.set_ylabel('NN Dist. (nm)')
-plt.gca().set_axis_off()
-plt.gca().set_title('Neighbor Distance')
-plt.savefig(output_data_path+'/'+filename+'_nn_dist_map.pdf',bbox_inches='tight')
-
-# plot a histogram of the "bond strengths"
-plt.figure(6)
-plt.hist(bond_list_filtered,bins=len(bond_list_filtered)/4)
-plt.ylabel('Count')
-plt.xlabel('Width (nm)')
-plt.gca().set_title('Bond Widths (filtered)')
-plt.savefig(output_data_path+'/'+filename+'_bond_hist.png', bbox_inches='tight')
-
-# plot a histogram of the nearest neighbor distances
-plt.figure(7)
-plt.hist(nn_dist_list,bins=len(nn_dist_list)/4)
-plt.ylabel('Count')
-plt.xlabel('Neighbor Distance (nm)')
-plt.savefig(output_data_path+'/'+filename+'_nn_dist_hist.png', bbox_inches='tight')
+    # plot a histogram of the nearest neighbor distances
+    plt.figure(7)
+    plt.hist(nn_dist_list,bins=len(nn_dist_list)/4)
+    plt.ylabel('Count')
+    plt.xlabel('Neighbor Distance (nm)')
+    plt.savefig(output_data_path+'/'+filename+'_nn_dist_hist.png', bbox_inches='tight')
 
 # save edge data to file
 header_string =     'pt1 and pt2 are the indices of the points between which the distance and bond width are given\n'
+header_string +=    'length: '+str(len(edges))+'\n'
 header_string +=    'pt1\tpt2\tdistance (nm)\tbond width (nm)'
 np.savetxt(output_data_path+'/'+filename+'_edges.txt',np.asarray(edges),fmt=('%u','%u','%.3f','%.3f'),delimiter='\t',header=header_string)
 
