@@ -131,7 +131,7 @@ def minkowski_structure_metric(vor,l,limits):
                     sum2 += np.abs(sum1)**2 #sum1*sum1.conjugate()
                     sum1 = 0
 
-                msm.append([np.sqrt(4*np.pi/(2*l+1) * sum2),region_index-1])
+                msm.append([region_index-1,np.sqrt(4*np.pi/(2*l+1) * sum2)])
     return msm
 
 def make_binary_image(im, white_background, min_feature_size):
@@ -317,11 +317,12 @@ plt.savefig(output_data_path+'/'+filename+'_radius_hist.png', bbox_inches='tight
 vor = Voronoi(pts)
 
 plt.figure(1)
-#plt.subplot(231)
+implot = plt.imshow(im_original)
+implot.set_cmap('gray')
 
 bond_order = 4
 
-# minkowski_structure_metric returns a list with metric,region_index
+# minkowski_structure_metric returns a list with region_index, metric
 msm = minkowski_structure_metric(vor,bond_order,(im.shape[1],im.shape[0]))
 
 # get a color map for mapping metric values to colors of some color scale
@@ -338,14 +339,16 @@ custom_colormap = LinearSegmentedColormap.from_list(name="custom", colors=value_
 symmetry_colormap = plt.get_cmap('RdBu_r')
     
 cell_patches = []
-for metric,region_index in msm:
+metric_list = []
+for region_index,metric in msm:
+    metric_list.append(metric)
     region_index = int(region_index)
     region = vor.regions[region_index]
     verts = np.asarray([vor.vertices[index] for index in region])
     cell_patches.append(Polygon(verts,closed=True,facecolor=symmetry_colormap(metric),edgecolor='k'))
 
 pc = PatchCollection(cell_patches,match_original=False,cmap=symmetry_colormap,alpha=0.5)
-pc.set_array(np.array([metric for metric,_ in msm]))
+pc.set_array(np.asarray(metric_list))
 plt.gca().add_collection(pc)
 
 # add the colorbar
@@ -365,7 +368,7 @@ plt.savefig(output_data_path+'/'+filename+'_q'+str(bond_order)+'_map.pdf',bbox_i
 
 # plot a histogram of the Minkowski structure metrics
 plt.figure(2)
-plt.hist([metric for metric,_ in msm],bins=len(msm)/4)
+plt.hist(metric_list,bins=len(msm)/4)
 plt.xlabel('q'+str(bond_order))
 plt.ylabel('Count')
 plt.savefig(output_data_path+'/'+filename+'_q'+str(bond_order)+'_hist.png', bbox_inches='tight')
@@ -373,8 +376,8 @@ plt.savefig(output_data_path+'/'+filename+'_q'+str(bond_order)+'_hist.png', bbox
 # save the metrics to a file
 header_string =     str(bond_order)+'-fold Minkowski metric (q'+str(bond_order)+')\n'
 header_string +=    'Reference: Mickel, Walter, et al. The Journal of Chemical Physics (2013)\n'
-header_string +=    'q'+str(bond_order)+'\tindex'
-np.savetxt(output_data_path+'/'+filename+'_q'+str(bond_order)+'_data.txt',msm,fmt='%.4e',delimiter='\t',header=header_string)
+header_string +=    'region_index\tq'+str(bond_order)
+np.savetxt(output_data_path+'/'+filename+'_q'+str(bond_order)+'_data.txt',msm,fmt=('%u','%.3f'),delimiter='\t',header=header_string)
 
 
 # Calculate and plot the "bond strengths"
