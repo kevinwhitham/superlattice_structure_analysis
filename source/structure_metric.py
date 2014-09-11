@@ -12,6 +12,10 @@ import numpy as np
 from scipy import special as sp
 from scipy.spatial import distance_matrix
 
+# for data structures
+import collections
+import scipy.sparse as sparse
+
 # plotting
 import matplotlib.pyplot as plt
 from matplotlib.collections import PatchCollection
@@ -397,13 +401,20 @@ implot.set_cmap('gray')
 
 bond_color_map = custom_colormap
 
-# bond_strenths is a 2D symmetric array where bond_widths[i,j] is the bond strength
-# between input point i and input point j
-bond_widths = np.zeros((len(pts),len(pts)))
-line_segments = []
-bond_width_list = []
+# graphs for random access, Monte Carlo?
+bond_graph = sparse.lil_matrix((len(pts),len(pts)),dtype=np.float32)
+distance_graph = sparse.lil_matrix((len(pts),len(pts)),dtype=np.float32)
+
+# for saving edge data to file
+edges = []
+
+# lists for plotting
+bond_list = []
+bond_list_filtered = []
 nn_dist_list = []
-nn_dist = np.zeros((len(pts),len(pts)))
+nn_dist_list_filtered= []
+line_segments = []
+line_segments_filtered = []
 
 # to draw the bonds between points
 for ridge_vert_indices,input_pair_indices in zip(vor.ridge_vertices,vor.ridge_points):
@@ -418,6 +429,18 @@ for ridge_vert_indices,input_pair_indices in zip(vor.ridge_vertices,vor.ridge_po
         y_vals = zip(vertex1,vertex2)[1]
         
         if np.all((np.greater(x_vals,0),np.greater(y_vals,0),np.less(x_vals,im.shape[1]),np.less(y_vals,im.shape[0]))):
+
+            # get the nearest neighbor distance
+            input_pt1 = pts[input_pair_indices[0]]
+            input_pt2 = pts[input_pair_indices[1]]
+            nn_x_dist = np.abs(input_pt1[0]-input_pt2[0])
+            nn_y_dist = np.abs(input_pt1[1]-input_pt2[1])
+            nn_distance = np.sqrt(nn_x_dist**2 + nn_y_dist**2)/pixels_per_nm
+
+            distance_graph[input_pair_indices[0],input_pair_indices[1]] = nn_distance
+            nn_dist_list.append(nn_distance)
+
+            # get the bond width
             # this is crude...lots of assumptions here
             # may not work well unless the im array is nearly binary because long facets
             # will always contribute more than small ones even if there is little material
@@ -429,43 +452,24 @@ for ridge_vert_indices,input_pair_indices in zip(vor.ridge_vertices,vor.ridge_po
             x_range = np.linspace(vertex1[0],vertex2[0],num=range_len,dtype='i4')
             y_range = np.linspace(vertex1[1],vertex2[1],num=range_len,dtype='i4')
 
-            # save the nearest neighbor distance
-            input_pt1 = pts[input_pair_indices[0]]
-            input_pt2 = pts[input_pair_indices[1]]
-            nn_x_dist = np.abs(input_pt1[0]-input_pt2[0])
-            nn_y_dist = np.abs(input_pt1[1]-input_pt2[1])
-
-            nn_distance = np.sqrt(nn_x_dist**2 + nn_y_dist**2)/pixels_per_nm
-            nn_dist[input_pair_indices[0],input_pair_indices[1]] = nn_distance
-            nn_dist[input_pair_indices[1],input_pair_indices[0]] = nn_distance
-            nn_dist_list.append(nn_distance)
-
-            # should fit a square function to get the actual width
             bond_width = np.sum(binary_im[y_range,x_range])/pixels_per_nm
-            bond_widths[input_pair_indices[0],input_pair_indices[1]] = bond_width
-            bond_widths[input_pair_indices[1],input_pair_indices[0]] = bond_width
-            bond_width_list.append(bond_width)
-    
-            # make the lines
+            bond_graph[input_pair_indices[0],input_pair_indices[1]] = bond_width
+            bond_list.append(bond_width)
+
+            # make the line segments for plotting bonds, neighbor distances, whatever
             line_segments.append(np.asarray([pts[input_pair_indices[0]],pts[input_pair_indices[1]]]))
 
+            edges.append([input_pair_indices[0],input_pair_indices[1],nn_distance,bond_width])
 
-#bond_threshold = threshold_otsu(bond_widths)
+            if not bond_width == 0:
+                bond_list_filtered.append(bond_width)
+                nn_dist_list_filtered.append(nn_distance)
+                line_segments_filtered.append(np.asarray([pts[input_pair_indices[0]],pts[input_pair_indices[1]]]))
+    
 
-bond_width_list_filtered = []
-line_segments_filtered = []
-nn_dist_filtered = []
-
-# create lists of line segments and properties excluding those
-# below the threshold
-for width,segment,nn in zip(bond_width_list,line_segments,nn_dist_list):
-    if not width == 0:
-        bond_width_list_filtered.append(width)
-        line_segments_filtered.append(segment)
-        nn_dist_filtered.append(nn)
 
 lc = LineCollection(line_segments_filtered,cmap=bond_color_map)
-lc.set_array(np.asarray(bond_width_list_filtered))
+lc.set_array(np.asarray(bond_list_filtered))
 lc.set_linewidth(1)
 plt.gca().add_collection(lc)
 bond_color_bar = plt.colorbar(lc)
@@ -485,10 +489,10 @@ plt.figure(4)
 binary_plot = plt.imshow(binary_im)
 binary_plot.set_cmap('gray')
 bin_lc = LineCollection(line_segments,cmap=bond_color_map)
-bin_lc.set_array(np.asarray(bond_width_list))
+bin_lc.set_array(np.asarray(bond_list_filtered))
 bin_lc.set_linewidth(1)
 plt.gca().add_collection(bin_lc)
-bond_color_bar = plt.colorbar(lc)
+bond_color_bar = plt.colorbar(bin_lc)
 bond_color_bar.ax.set_ylabel('Bond Width (nm)')
 plt.gca().set_axis_off()
 plt.savefig(output_data_path+'/'+filename+'_bond_map_binary.pdf',bbox_inches='tight')
@@ -499,7 +503,7 @@ nn_dist_cmap = plt.get_cmap('RdBu_r')
 implot = plt.imshow(im_original)
 implot.set_cmap('gray')
 nn_lc = LineCollection(line_segments_filtered,cmap=nn_dist_cmap)
-nn_lc.set_array(np.asarray(nn_dist_filtered))
+nn_lc.set_array(np.asarray(nn_dist_list_filtered))
 nn_lc.set_linewidth(1)
 plt.gca().add_collection(nn_lc)
 nn_color_bar = plt.colorbar(nn_lc)
@@ -510,16 +514,11 @@ plt.savefig(output_data_path+'/'+filename+'_nn_dist_map.pdf',bbox_inches='tight'
 
 # plot a histogram of the "bond strengths"
 plt.figure(6)
-
-plt.hist(bond_width_list_filtered,bins=len(bond_width_list_filtered)/4)
+plt.hist(bond_list_filtered,bins=len(bond_list_filtered)/4)
 plt.ylabel('Count')
 plt.xlabel('Width (nm)')
 plt.gca().set_title('Bond Widths (filtered)')
 plt.savefig(output_data_path+'/'+filename+'_bond_hist.png', bbox_inches='tight')
-
-header_string =     'Bond widths: a symmetric array where array[i,j] = array[j,i] = width of bond between particle i and particle j\n'
-header_string +=    'width (nm)'
-np.savetxt(output_data_path+'/'+filename+'_bond_data.txt',bond_widths,fmt='%.4e',delimiter='\t',header=header_string)
 
 # plot a histogram of the nearest neighbor distances
 plt.figure(7)
@@ -528,9 +527,10 @@ plt.ylabel('Count')
 plt.xlabel('Neighbor Distance (nm)')
 plt.savefig(output_data_path+'/'+filename+'_nn_dist_hist.png', bbox_inches='tight')
 
-header_string =     'Nearest neighbors: a symmetric array where array[i,j] = array[j,i] = distance between particle i and particle j\n'
-header_string +=     'distance (nm)'
-np.savetxt(output_data_path+'/'+filename+'_nn_dist_data.txt',nn_dist,fmt='%.4e',delimiter='\t',header=header_string)
+# save edge data to file
+header_string =     'pt1 and pt2 are the indices of the points between which the distance and bond width are given\n'
+header_string +=    'pt1\tpt2\tdistance (nm)\tbond width (nm)'
+np.savetxt(output_data_path+'/'+filename+'_edges.txt',np.asarray(edges),fmt=('%u','%u','%.3f','%.3f'),delimiter='\t',header=header_string)
 
 # show it all
 #plt.show()
