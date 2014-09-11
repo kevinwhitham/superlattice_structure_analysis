@@ -248,6 +248,11 @@ def get_image_scale(im):
 
     return [scale,((985,1369-bar_width),(1025,1369))]
 
+
+
+
+
+
 parser = argparse.ArgumentParser()
 parser.add_argument("img_file",help="image file to analyze")
 parser.add_argument("pts_file",nargs='?',help="XY point data file",default='')
@@ -256,9 +261,8 @@ parser.add_argument("-b","--black", help="black background", action='store_true'
 args = parser.parse_args()
 
 im = skimio.imread(args.img_file,as_grey=True)
-im_original = im
-implot = plt.imshow(im_original)
-implot.set_cmap('gray')
+im_original = np.empty_like(im)
+np.copyto(im_original,im)
 
 # import the points to analyze
 #input_data_path = '../test_data/input/'
