@@ -292,11 +292,14 @@ if len(args.pts_file) == 0:
     pts,radii = get_particle_centers(im,background,pixels_per_nm)
 
     # save the input points to a file
-    header_string = 'Particle centroids\nX (pixel)\tY (pixel)'
+    header_string = 'Particle centroids\n'
+    header_string += 'length: '+str(len(pts))+'\n'
+    header_string += 'X (pixel)\tY (pixel)'
     np.savetxt(output_data_path+'/'+filename+'_centroids.txt',pts,fmt='%.4e',delimiter='\t',header=header_string)
 
     # save the radii to a file
     header_string = 'Particle radii - half of the average of the major and minor diameters of an ellipse fit to the particle\n'
+    header_string += 'length: '+str(len(radii))+'\n'
     header_string += 'radius (nm)'
     np.savetxt(output_data_path+'/'+filename+'_radii.txt',radii,fmt='%.4e',delimiter='\t',header=header_string)
 else:
