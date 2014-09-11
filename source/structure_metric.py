@@ -147,7 +147,7 @@ def make_binary_image(im, white_background, min_feature_size):
     binary = threshold_adaptive(im,block_size=50*min_feature_size)
 
     # formerly min_size=min_feature_size-1
-    binary = remove_small_objects(binary,min_size=min_feature_size/2)
+    binary = remove_small_objects(binary,min_size=max(min_feature_size/2,2))
 
     # dilation of the binary image helps congeal large particles with low contrast
     # that get broken up by threshold
@@ -182,6 +182,17 @@ def get_particle_centers(im, white_background, pixels_per_nm):
 
     labels = watershed(-distance, markers, mask=binary)
 
+    # DEBUG
+    # plt.figure(2)
+    # plt.imshow(binary)
+    # plt.figure(3)
+    # plt.imshow(distance)
+    # plt.figure(4)
+    # plt.imshow(markers,cmap=plt.cm.spectral,alpha=0.5)
+    # plt.figure(5)
+    # plt.imshow(labels,cmap=plt.cm.prism)
+    # plt.show()
+
     # get the particle centroids
     regions = regionprops(labels)
     pts = []
@@ -194,19 +205,6 @@ def get_particle_centers(im, white_background, pixels_per_nm):
 
         # define the radius as half the average of the major and minor diameters
         radii.append(((props.minor_axis_length+props.major_axis_length)/4)/pixels_per_nm)
-
-    # DEBUG
-    # plt.figure(2)
-    # plt.imshow(binary)
-    # plt.figure(3)
-    # plt.imshow(distance)
-    # #plt.figure(4)
-    # plt.imshow(markers,cmap=plt.cm.spectral,alpha=0.5)
-    # plt.figure(5)
-    # plt.imshow(labels,cmap=plt.cm.prism)
-    # plt.figure(6)
-    # plt.hist(radii,bins=len(radii)/4)
-    # plt.show()
 
     return np.asarray(pts),radii
 
