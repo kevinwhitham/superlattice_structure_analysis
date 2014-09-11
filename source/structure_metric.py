@@ -178,6 +178,19 @@ def get_particle_centers(im, white_background, pixels_per_nm):
 
     labels = watershed(-distance, markers, mask=binary)
 
+    # get the particle centroids
+    regions = regionprops(labels)
+    pts = []
+    radii = []
+
+    for props in regions:
+        # centroid is [row, col] we want [col, row] aka [X,Y]
+        # so reverse the order
+        pts.append(props.centroid[::-1])
+
+        # define the radius as half the average of the major and minor diameters
+        radii.append(((props.minor_axis_length+props.major_axis_length)/4)/pixels_per_nm)
+
     # DEBUG
     # plt.figure(2)
     # plt.imshow(binary)
@@ -187,17 +200,11 @@ def get_particle_centers(im, white_background, pixels_per_nm):
     # plt.imshow(markers,cmap=plt.cm.spectral,alpha=0.5)
     # plt.figure(5)
     # plt.imshow(labels,cmap=plt.cm.prism)
+    # plt.figure(6)
+    # plt.hist(radii,bins=len(radii)/4)
     # plt.show()
 
-    # get the particle centroids
-    regions = regionprops(labels)
-    pts = []
-    for props in regions:
-        # centroid is [row, col] we want [col, row] aka [X,Y]
-        # so reverse the order
-        pts.append(props.centroid[::-1])
-
-    return np.asarray(pts)
+    return np.asarray(pts),radii
 
 def get_image_scale(im):
 
@@ -274,14 +281,20 @@ else:
 
 if len(args.pts_file) == 0:
     # find the centroid of each particle in the image
-    pts = get_particle_centers(im,background,pixels_per_nm)
+    pts,radii = get_particle_centers(im,background,pixels_per_nm)
 
     # save the input points to a file
     header_string = 'Particle centroids\nX (pixel)\tY (pixel)'
     np.savetxt(output_data_path+'/'+filename+'_centroids.txt',pts,fmt='%.4e',delimiter='\t',header=header_string)
+
+    # save the radii to a file
+    header_string = 'Particle radii - half of the average of the major and minor diameters of an ellipse fit to the particle\n'
+    header_string += 'radius (nm)'
+    np.savetxt(output_data_path+'/'+filename+'_radii.txt',radii,fmt='%.4e',delimiter='\t',header=header_string)
 else:
     print("User specified points")
     pts = np.loadtxt(args.pts_file,skiprows=1,usecols=(1,2),ndmin=2)
+    radii = []
 
 # ideal square grid test case
 #x = np.linspace(-0.5, 2.5, 5)
@@ -289,6 +302,13 @@ else:
 #xx, yy = np.meshgrid(x, y)
 #xy = np.c_[xx.ravel(), yy.ravel()]
 #pts = xy
+
+plt.figure(0)
+plt.hist(radii,bins=len(radii)/4)
+plt.gca().set_title('Radius')
+plt.xlabel('radius (nm)')
+plt.ylabel('Count')
+plt.savefig(output_data_path+'/'+filename+'_radius_hist.png', bbox_inches='tight')
 
 vor = Voronoi(pts)
 
