@@ -3,14 +3,8 @@
 # Reference: Mickel, Walter, et al. "Shortcomings of the bond orientational order parameters for the analysis of disordered particulate matter." The Journal of chemical physics (2013)
 # 20140902 Kevin Whitham
 
-# for calculating facet angles
-from math import hypot
-from math import acos
-
 # general math
 import numpy as np
-from scipy import special as sp
-from scipy.spatial import distance_matrix
 
 # for data structures
 import collections
@@ -41,102 +35,11 @@ from os import path
 # for matching the scale bar
 from skimage.feature import match_template
 
-# returns the angle in radians of the interior angle made by 3 points
-def angle(pt1, pt2, pt3):
-    x1, y1 = pt1
-    x2, y2 = pt2
-    x3, y3 = pt3
-    
-    # change coordinates to put pt2 at the origin
-    x1 = x1-x2
-    y1 = y1-y2
-    x3 = x3-x2
-    y3 = y3-y2
+# minkowski structure metric function written and compiled with Cython
+from minkowski_metric import minkowski
+#import pyximport; pyximport.install()
+#import minkowski_metric
 
-    x2 = 0
-    y2 = 0
-
-    
-    inner_product = x1*x3 + y1*y3
-    len1 = hypot(x1, y1)
-    len2 = hypot(x3, y3)
-    if len1 > 0 and len2 > 0:
-        return acos(inner_product/(len1*len2))
-    else:
-        return 0
-
-# calculates the Minkowski structure metric of order l for each Voronoi cell in vor
-# ignoring cells with vertices less than zero or greater than limits
-def minkowski_structure_metric(vor,l,limits):
-
-    x_max = limits[0]
-    y_max = limits[1]
-    
-    msm = []
-    
-    region_index = 0
-
-    # for each Voronoi cell
-    for region in vor.regions:
-        
-        # for storing in msm
-        region_index += 1
-    
-        # clear the perimeter value
-        cellPerimeter = 0
-    
-        # skip infinite cells and empty regions
-        if len(region) and np.all(np.not_equal(region,-1)):
-            
-            # check if any points are off the image
-            polygon = np.asarray([vor.vertices[vert] for vert in region])
-            
-            if not (np.any(np.less(polygon,0)) or np.any(np.greater(polygon[:,0],x_max)) or np.any(np.greater(polygon[:,1],y_max))):
-
-                # make a 1-D arrays to hold information about each facet
-                facet_lengths = np.zeros(len(region))
-                facetNormalAngles = np.zeros(len(region))
-                interior_angles = np.zeros(len(region))
-                
-                # region contains the indices of the points which make the vertices of the simplex
-                for region_vert_index in range(len(region)):
-                    # euclidean distance
-                    vertex1 = vor.vertices[region[region_vert_index]]
-                    vertex2 = vor.vertices[region[(region_vert_index+1) % len(region)]]
-                    facet_lengths[region_vert_index] = distance_matrix([vertex1],[vertex2],p=2)
-
-                    # find the angle of the facets relative to the first facet
-                    vertex3 = vor.vertices[region[(region_vert_index+2) % len(region)]]
-                    interior_angles[region_vert_index] = angle(vertex1,vertex2,vertex3)
-
-                    # the angle of the facet vertex2 to vertex3
-                    # relative to the facet vertex1 to vertex2
-                    # is 180-90-interior_angle + the sum of all previous interior angles
-                    #if (region_vert_index+1) < len(region):
-                    rotation = np.pi-interior_angles[region_vert_index]
-                    facetNormalAngles[(region_vert_index+1) % len(region)] = (facetNormalAngles[region_vert_index]+rotation) % (2*np.pi)
-
-                    # add to the cell perimeter
-                    cellPerimeter += facet_lengths[region_vert_index]
-
-                # make the facetNormalAngles actually the normal angles, not the facet angles
-                facetNormalAngles += 3*np.pi/2
-
-                # seems logical to make the facet angles relative to the facet with the largest length?
-                #facetNormalAngles -= facetNormalAngles[np.argmax(facetLengths)]
-
-                sum1 = 0
-                sum2 = 0
-
-                for m in range(-l,l+1):
-                    for facet_length,normalAngle in zip(facet_lengths,facetNormalAngles):
-                        sum1 += facet_length/cellPerimeter * sp.sph_harm(m,l,theta=normalAngle,phi=np.pi/2)
-
-                    sum2 += np.abs(sum1)**2 #sum1*sum1.conjugate()
-                    sum1 = 0
-
-                msm.append([region_index-1,np.sqrt(4*np.pi/(2*l+1) * sum2)])
-    return msm
 
 def make_binary_image(im, white_background, min_feature_size):
 
@@ -418,7 +321,7 @@ vor = Voronoi(pts)
 bond_order = 4
 
 # minkowski_structure_metric returns a list with region_index, metric
-msm = minkowski_structure_metric(vor,bond_order,(im.shape[1],im.shape[0]))
+msm = minkowski(vor.vertices,vor.regions,bond_order,(im.shape[1],im.shape[0]))
 
 if not args.noplot:
     plt.figure(1)
