@@ -47,7 +47,8 @@ def make_binary_image(im, white_background, min_feature_size):
         im = np.abs(im-np.max(im))
 
     # the block size should be large enough to include 4 to 9 particles
-    binary = threshold_adaptive(im,block_size=50*min_feature_size)
+    # need a better way to get rid of large blank spaces...
+    binary = threshold_adaptive(im,block_size=100*min_feature_size)
 
     # formerly min_size=min_feature_size-1
     binary = remove_small_objects(binary,min_size=max(min_feature_size/2,2))
