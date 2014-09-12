@@ -109,7 +109,7 @@ def get_particle_centers(im, white_background, pixels_per_nm):
         # define the radius as half the average of the major and minor diameters
         radii.append(((props.minor_axis_length+props.major_axis_length)/4)/pixels_per_nm)
 
-    return np.asarray(pts),radii
+    return np.asarray(pts),np.asarray(radii).reshape((-1,1))
 
 def get_image_scale(im):
 
@@ -285,17 +285,17 @@ if len(args.pts_file) == 0:
     # find the centroid of each particle in the image
     pts,radii = get_particle_centers(im,background,pixels_per_nm)
 
-    # save the input points to a file
-    header_string = 'Particle centroids\n'
-    header_string += 'length: '+str(len(pts))+'\n'
-    header_string += 'X (pixel)\tY (pixel)'
-    np.savetxt(output_data_path+'/'+filename+'_centroids.txt',pts,fmt='%.4e',delimiter='\t',header=header_string)
+    assert len(pts) == len(radii)
 
-    # save the radii to a file
-    header_string = 'Particle radii - half of the average of the major and minor diameters of an ellipse fit to the particle\n'
-    header_string += 'length: '+str(len(radii))+'\n'
-    header_string += 'radius (nm)'
-    np.savetxt(output_data_path+'/'+filename+'_radii.txt',radii,fmt='%.4e',delimiter='\t',header=header_string)
+    particle_data = np.hstack((pts,radii))
+
+    # save the input points to a file
+    header_string = 'Particle centroids in pixel units\n'
+    header_string += 'Particle radii - half of the average of the major and minor diameters of an ellipse fit to the particle area\n'
+    header_string += 'total particles: '+str(len(pts))+'\n'
+    header_string += 'X (pixel)\tY (pixel)\tradius (nm)'
+    np.savetxt(output_data_path+'/'+filename+'_particles.txt',particle_data,fmt='%.4e',delimiter='\t',header=header_string)
+
 else:
     print("User specified points")
     pts = np.loadtxt(args.pts_file,skiprows=1,usecols=(1,2),ndmin=2)
@@ -442,7 +442,7 @@ if not args.noplot:
 
 # save edge data to file
 header_string =     'pt1 and pt2 are the indices of the points between which the distance and bond width are given\n'
-header_string +=    'length: '+str(len(edges))+'\n'
+header_string +=    'total edges: '+str(len(edges))+'\n'
 header_string +=    'pt1\tpt2\tdistance (nm)\tbond width (nm)'
 np.savetxt(output_data_path+'/'+filename+'_edges.txt',np.asarray(edges),fmt=('%u','%u','%.3f','%.3f'),delimiter='\t',header=header_string)
 
