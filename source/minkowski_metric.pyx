@@ -1,15 +1,20 @@
+# minkowski_metric.pyx
+# Calculates the Minkowski structure metrics for an array of points
+# Reference: Mickel, Walter, et al. "Shortcomings of the bond orientational order parameters for the analysis of disordered particulate matter." The Journal of chemical physics (2013)
+# 20140902 Kevin Whitham
+
 import numpy as np
 cimport numpy as np
 cimport cython
 from math import acos
-from scipy.special import sph_harm
 from cpython cimport bool
+from scipy.special import sph_harm
 
 DUBTYPE = np.double
-ITYPE = np.int
+SINTYPE = np.float32
 
 ctypedef np.double_t DUBTYPE_t
-ctypedef np.int_t ITYPE_t
+ctypedef np.float32_t SINTYPE_t
 
 # returns the angle in radians of the interior angle made by 3 points
 cdef inline double angle(double x1, double y1, double x2, double y2, double x3, double y3):
@@ -48,8 +53,18 @@ cpdef minkowski(np.ndarray[DUBTYPE_t, ndim=2] vor_vertices, vor_regions, int l, 
     # Cython static type definitions
     cdef unsigned int region_index, region_vert_index, vert_count, facet_index
     cdef int m
-    cdef double x1, y1, x2, y2, x3, y3, rotation, cell_perimeter, sum1, sum2
+    cdef double x1, y1, x2, y2, x3, y3, rotation, cell_perimeter, sum1_real, sum1_imag, sum2
     cdef bool out_of_bounds
+
+    # load the spherical harmonic values from a file
+    cdef np.ndarray[SINTYPE_t, ndim=2] sph_harm_values
+    sph_harm_values = np.load('sph_harm_'+str(l)+'.npy')
+
+    # for indexing the spherical harmonic value array by angle value
+    # 62832 values gives 4 significant figures of precision
+    # could do this dynamically: rows_per_radian = sph_harm_values.shape[0]/(2.0*np.pi)
+    # but it will be off due to rounding/trunction error
+    cdef DUBTYPE_t rows_per_radian = 10**4
 
     # make a 1-D arrays to hold information about each facet
     # assume all regions have fewer than 20 facets
@@ -100,7 +115,7 @@ cpdef minkowski(np.ndarray[DUBTYPE_t, ndim=2] vor_vertices, vor_regions, int l, 
                     # is 180-90-interior_angle + the sum of all previous interior angles
                     #if (region_vert_index+1) < vert_count:
                     rotation = np.pi-interior_angles[region_vert_index]
-                    facet_normal_angles[<unsigned int>((region_vert_index+1) % vert_count)] = ((facet_normal_angles[region_vert_index]+rotation) % (2*np.pi)) + 3*np.pi/2
+                    facet_normal_angles[<unsigned int>((region_vert_index+1) % vert_count)] = ((facet_normal_angles[region_vert_index]+rotation) % (2.0*np.pi))
 
                     # add to the cell perimeter
                     cell_perimeter += facet_lengths[region_vert_index]
@@ -108,24 +123,35 @@ cpdef minkowski(np.ndarray[DUBTYPE_t, ndim=2] vor_vertices, vor_regions, int l, 
                 else:
 
                     out_of_bounds = True
-                    #region_vert_index = vert_count
-                    #break
+                    break
 
             # seems logical to make the facet angles relative to the facet with the largest length?
             #facet_normal_angles -= facet_normal_angles[np.argmax(facetLengths)]
 
             if not out_of_bounds:
 
-                sum1 = 0
-                sum2 = 0
+                sum1_real   = 0.0
+                sum1_imag   = 0.0
+                sum2        = 0.0
 
-                for m in range(-l,l+1):
+                # handle the m = 0 case
+                for facet_index in range(vert_count):
+                    sum2 += facet_lengths[facet_index]/cell_perimeter * <double> (np.real(sph_harm(0,l,0,np.pi/2)).item())
+
+                for col in range(0,<unsigned int>sph_harm_values.shape[1],2):
                     for facet_index in range(vert_count):
-                        #sum1 += facet_lengths[facet_index]/cell_perimeter * np.real(sph_harm(m,l,theta=facet_normal_angles[facet_index],phi=np.pi/2))
-                        sum1 = 1
+                        row_index = <unsigned int> np.ceil(facet_normal_angles[facet_index]*rows_per_radian)
 
-                    sum2 += np.abs(sum1)**2 #sum1*sum1.conjugate()
-                    sum1 = 0
+                        # wrap-around, this shouldn't happen except maybe at 62832
+                        row_index = row_index % 62832
+
+                        sum1_real += facet_lengths[facet_index]/cell_perimeter * sph_harm_values[row_index,col]
+                        sum1_imag += facet_lengths[facet_index]/cell_perimeter * sph_harm_values[row_index,col+1]
+
+                    # factor of 2 because the negative m values are the same but with a sign change on the imaginary part
+                    sum2 += 2.0*(sum1_real*sum1_real - sum1_imag*(-sum1_imag))
+                    sum1_real = 0
+                    sum1_imag = 0
 
                 msm.append([region_index,np.sqrt(4*np.pi/(2*l+1) * sum2)])
     return msm
