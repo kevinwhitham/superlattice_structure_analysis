@@ -23,9 +23,10 @@ from scipy.spatial import Voronoi
 # for finding particle centers, diameters, etc.
 from skimage.measure import regionprops
 from skimage.filter import threshold_otsu,threshold_adaptive, threshold_isodata
-from skimage.morphology import watershed, remove_small_objects
+from skimage.morphology import watershed, remove_small_objects, binary_dilation
 from skimage.feature import peak_local_max
 from scipy import ndimage
+from skimage.morphology import convex_hull_object
 
 # for command line interface
 import argparse
@@ -46,12 +47,38 @@ def make_binary_image(im, white_background, min_feature_size):
     if white_background:
         im = np.abs(im-np.max(im))
 
+    local_size = 20*min_feature_size
+
+    # get rid of large background patches before local thresholding
+    # do a global threshold
+    thresh = threshold_isodata(im)
+
+    # invert the image
+    binary = im < thresh
+
+    # make a distance map of the inverted image
+    distance = ndimage.distance_transform_edt(binary)
+
+    # do a global threshold on the distance map to select the biggest objects
+    thresh = threshold_otsu(distance)
+    mask = distance > thresh
+
+    # get the convex hull of the labeled regions
+    # and set that area to be background
+    #convex_labels = convex_hull_object(mask)
+
+    im = im * (-mask)
+
     # the block size should be large enough to include 4 to 9 particles
     # need a better way to get rid of large blank spaces...
-    binary = threshold_adaptive(im,block_size=100*min_feature_size)
+    binary = threshold_adaptive(im,block_size=local_size)
+
+    # dilate the background mask to get rid of the mask edge effect from local threshold
+    binary_dilation(mask, selem=np.ones((min_feature_size,min_feature_size)), out=mask)
+    binary = binary * (-mask)
 
     # formerly min_size=min_feature_size-1
-    binary = remove_small_objects(binary,min_size=max(min_feature_size/2,2))
+    binary = remove_small_objects(binary,min_size=max(min_feature_size,2))
 
     # dilation of the binary image helps congeal large particles with low contrast
     # that get broken up by threshold
@@ -69,7 +96,7 @@ def get_particle_centers(im, white_background, pixels_per_nm):
         pixels_per_nm = 5
 
     # minimum size object to look for
-    min_feature_size = int(2*pixels_per_nm)
+    min_feature_size = int(3*pixels_per_nm)
 
     binary = make_binary_image(im, white_background, min_feature_size)
 
