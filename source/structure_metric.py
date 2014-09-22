@@ -137,11 +137,11 @@ def get_particle_centers(im, white_background, pixels_per_nm):
         # define the radius as half the average of the major and minor diameters
         radii.append(((props.minor_axis_length+props.major_axis_length)/4)/pixels_per_nm)
 
-    return np.asarray(pts),np.asarray(radii).reshape((-1,1))
+    return np.asarray(pts,dtype=np.double),np.asarray(radii,dtype=np.double).reshape((-1,1))
 
 def get_image_scale(im):
 
-    scale = 0
+    scale = 0.0
     bar_width = 0
 
     input_path = '../test_data/input/'
@@ -175,7 +175,7 @@ def get_image_scale(im):
     else:
         print('No scale bar found')
 
-    return [scale,((985,1369-bar_width),(1025,1369))]
+    return [np.double(scale),((985,1369-bar_width),(1025,1369))]
 
 def create_custom_colormap():
 
