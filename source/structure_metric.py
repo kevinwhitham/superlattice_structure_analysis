@@ -375,8 +375,14 @@ nn_dist_list = []
 bond_list = []
 
 # graphs for random access, Monte Carlo?
-bond_graph = sparse.lil_matrix((len(pts),len(pts)),dtype=np.float32)
-distance_graph = sparse.lil_matrix((len(pts),len(pts)),dtype=np.float32)
+bond_graph = sparse.lil_matrix((len(pts),len(pts)),dtype=np.double)
+distance_x_graph = sparse.lil_matrix((len(pts),len(pts)),dtype=np.double)
+distance_y_graph = sparse.lil_matrix((len(pts),len(pts)),dtype=np.double)
+
+# keep track of boundary particles
+# naively there is a maximum of len(pts) particles that could be on the boundary
+# since we don't want to allocate all of them or append a site more than once to a list, use a sparse matrix
+boundary_sites = sparse.lil_matrix((len(pts),1),dtype=np.int8)
 
 # for saving edge data to file
 edges = []
@@ -398,17 +404,35 @@ for ridge_vert_indices,input_pair_indices in zip(vor.ridge_vertices,vor.ridge_po
         
         x_vals = zip(vertex1,vertex2)[0]
         y_vals = zip(vertex1,vertex2)[1]
-        
+
+        input_pt1 = pts[input_pair_indices[0]]
+        input_pt2 = pts[input_pair_indices[1]]
+
         if np.all((np.greater(x_vals,0),np.greater(y_vals,0),np.less(x_vals,im.shape[1]),np.less(y_vals,im.shape[0]))):
 
             # get the nearest neighbor distance
-            input_pt1 = pts[input_pair_indices[0]]
-            input_pt2 = pts[input_pair_indices[1]]
-            nn_x_dist = np.abs(input_pt1[0]-input_pt2[0])
-            nn_y_dist = np.abs(input_pt1[1]-input_pt2[1])
-            nn_distance = np.sqrt(nn_x_dist**2 + nn_y_dist**2)/pixels_per_nm
+            # the directional x and y distance to move from pt1 to pt2
+            nn_x_dist = (input_pt2[0]-input_pt1[0])/pixels_per_nm
+            nn_y_dist = (input_pt2[1]-input_pt1[1])/pixels_per_nm
 
-            distance_graph[input_pair_indices[0],input_pair_indices[1]] = nn_distance
+            # if the interparticle distance computes to zero
+            # it is because of the resolution of the image
+            # therefore set the distance to the uncertainty of the measurement
+            # this avoids dropping of zero-valued elements later in sparse matrix operations
+            # this should only be an issue for a few particles with the lowest magnification images
+            if nn_x_dist == 0.0:
+                nn_x_dist = 1.0/pixels_per_nm
+
+            if nn_y_dist == 0.0:
+                nn_y_dist = 1.0/pixels_per_nm
+
+            nn_distance = np.sqrt(nn_x_dist**2 + nn_y_dist**2)
+
+            # distance_..._graph[i,j] is the distance to move from point i to point j
+            distance_x_graph[input_pair_indices[0],input_pair_indices[1]] = nn_x_dist
+            distance_x_graph[input_pair_indices[1],input_pair_indices[0]] = -nn_x_dist
+            distance_y_graph[input_pair_indices[0],input_pair_indices[1]] = nn_y_dist
+            distance_y_graph[input_pair_indices[1],input_pair_indices[0]] = -nn_y_dist
             nn_dist_list.append(nn_distance)
 
             # get the bond width
@@ -425,6 +449,7 @@ for ridge_vert_indices,input_pair_indices in zip(vor.ridge_vertices,vor.ridge_po
 
             bond_width = np.sum(binary_im[y_range,x_range])/pixels_per_nm
             bond_graph[input_pair_indices[0],input_pair_indices[1]] = bond_width
+            bond_graph[input_pair_indices[1],input_pair_indices[0]] = bond_width
             bond_list.append(bond_width)
 
             # make the line segments for plotting bonds, neighbor distances, whatever
@@ -437,6 +462,10 @@ for ridge_vert_indices,input_pair_indices in zip(vor.ridge_vertices,vor.ridge_po
                 nn_dist_list_filtered.append(nn_distance)
                 line_segments_filtered.append(np.asarray([pts[input_pair_indices[0]],pts[input_pair_indices[1]]]))
     
+        else:
+            # at least one ridge vertex is off the image
+            # these two input points are boundary sites
+            boundary_sites[input_pair_indices,0] = np.int(1)
 
 if not args.noplot:
 
@@ -476,3 +505,15 @@ np.savetxt(output_data_path+'/'+filename+'_edges.txt',np.asarray(edges),fmt=('%u
 
 # show it all
 #plt.show()
+
+# save the graphs to files to use in Monte Carlo
+bond_graph_csr = bond_graph.tocsr()
+distance_x_graph_csr = distance_x_graph.tocsr()
+distance_y_graph_csr = distance_y_graph.tocsr()
+boundary_sites_csc = boundary_sites.tocsc()
+radii = np.asarray(radii.reshape((-1,)),dtype=np.double)
+np.savez(output_data_path+'/'+filename+'_bond_graph',data=bond_graph_csr.data,indices=bond_graph_csr.indices,indptr=bond_graph_csr.indptr)
+np.savez(output_data_path+'/'+filename+'_x_distance_graph',data=distance_x_graph_csr.data,indices=distance_x_graph_csr.indices,indptr=distance_x_graph_csr.indptr)
+np.savez(output_data_path+'/'+filename+'_y_distance_graph',data=distance_y_graph_csr.data,indices=distance_y_graph_csr.indices,indptr=distance_y_graph_csr.indptr)
+np.savez(output_data_path+'/'+filename+'_boundary_graph',data=boundary_sites_csc.data,indices=boundary_sites_csc.indices,indptr=boundary_sites_csc.indptr)
+np.savez(output_data_path+'/'+filename+'_site_data',radii=radii,pts=pts,pixels_per_nm=np.asarray(pixels_per_nm),box_x_size=np.asarray(im.shape[1]/pixels_per_nm))
