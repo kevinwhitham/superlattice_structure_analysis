@@ -47,7 +47,7 @@ def make_binary_image(im, white_background, min_feature_size):
     if white_background:
         im = np.abs(im-np.max(im))
 
-    local_size = 20*min_feature_size
+    local_size = 50*min_feature_size
 
     # get rid of large background patches before local thresholding
     # do a global threshold
