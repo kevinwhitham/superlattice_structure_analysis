@@ -1,7 +1,7 @@
 # minkowski_metric.pyx
 # Calculates the Minkowski structure metrics for an array of points
 # Reference: Mickel, Walter, et al. "Shortcomings of the bond orientational order parameters for the analysis of disordered particulate matter." The Journal of chemical physics (2013)
-# 20140902 Kevin Whitham
+# 20140902 Kevin Whitham, Cornell University
 
 import numpy as np
 cimport numpy as np
@@ -53,7 +53,7 @@ cpdef minkowski(np.ndarray[DUBTYPE_t, ndim=2] vor_vertices, vor_regions, int l, 
     # Cython static type definitions
     cdef unsigned int region_index, region_vert_index, vert_count, facet_index
     cdef int m
-    cdef double x1, y1, x2, y2, x3, y3, rotation, cell_perimeter, sum1_real, sum1_imag, sum2
+    cdef double x1, y1, x2, y2, x3, y3, rotation, cell_perimeter, sum1_real, sum1_imag, sum2, zero_sum
     cdef bool out_of_bounds
 
     # load the spherical harmonic values from a file
@@ -133,11 +133,20 @@ cpdef minkowski(np.ndarray[DUBTYPE_t, ndim=2] vor_vertices, vor_regions, int l, 
                 sum1_real   = 0.0
                 sum1_imag   = 0.0
                 sum2        = 0.0
+                zero_sum    = 0.0
 
                 # handle the m = 0 case
                 for facet_index in range(vert_count):
-                    sum2 += facet_lengths[facet_index]/cell_perimeter * <double> (np.real(sph_harm(0,l,0,np.pi/2)).item())
+                    zero_sum += facet_lengths[facet_index]/cell_perimeter * <double> (np.real(sph_harm(0,l,0,np.pi/2)).item())
 
+                sum2 += zero_sum**2
+
+                # calculate only the even values of m (2...l-2,l)
+                # the sph_harm_values array has 2 cols for each m value (real and imaginary)
+                # e.g. for l = 6:
+                #   col 0,1 are real and im values for m = 2
+                #   col 2,3 are real and im values for m = 4
+                #   col 4,5 are real and im values for m = 6
                 for col in range(0,<unsigned int>sph_harm_values.shape[1],2):
                     for facet_index in range(vert_count):
                         row_index = <unsigned int> np.ceil(facet_normal_angles[facet_index]*rows_per_radian)
@@ -145,6 +154,7 @@ cpdef minkowski(np.ndarray[DUBTYPE_t, ndim=2] vor_vertices, vor_regions, int l, 
                         # wrap-around, this shouldn't happen except maybe at 62832
                         row_index = row_index % 62832
 
+                        # row is the angle, col is the m-number
                         sum1_real += facet_lengths[facet_index]/cell_perimeter * sph_harm_values[row_index,col]
                         sum1_imag += facet_lengths[facet_index]/cell_perimeter * sph_harm_values[row_index,col+1]
 

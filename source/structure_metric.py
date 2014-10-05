@@ -1,7 +1,7 @@
 # structure_metric.py
 # Calculates the Minkowski structure metrics for an array of points
 # Reference: Mickel, Walter, et al. "Shortcomings of the bond orientational order parameters for the analysis of disordered particulate matter." The Journal of chemical physics (2013)
-# 20140902 Kevin Whitham
+# 20140902 Kevin Whitham, Cornell University
 
 # general math
 import numpy as np
@@ -273,6 +273,7 @@ def plot_nn_distance(im,line_segments,nn_distance_list):
 parser = argparse.ArgumentParser()
 parser.add_argument('-b','--black', help='black background', action='store_true')
 parser.add_argument('-n','--noplot', help='do not plot data', action='store_true')
+parser.add_argument('order',help='order of the symmetry function', type=int, default=4)
 parser.add_argument('img_file',help='image file to analyze')
 parser.add_argument('pts_file',nargs='?',help='XY point data file',default='')
 parser.add_argument('pix_per_nm',nargs='?',help='scale in pixels per nm',default=0.0,type=float)
@@ -346,10 +347,16 @@ if not args.noplot:
 
 vor = Voronoi(pts)
 
-bond_order = 4
+bond_order = args.order
+
+if not bond_order > 0:
+    raise ValueError('order parameter should be > 0')
 
 # minkowski_structure_metric returns a list with region_index, metric
 msm = minkowski(vor.vertices,vor.regions,bond_order,(im.shape[1],im.shape[0]))
+
+if np.any(np.isnan(np.asarray(msm)[:,1])):
+    raise ValueError('nan found in structure metric array')
 
 if not args.noplot:
     plt.figure(1)
