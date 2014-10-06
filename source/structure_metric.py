@@ -26,7 +26,9 @@ from skimage.filter import threshold_otsu,threshold_adaptive, threshold_isodata
 from skimage.morphology import watershed, remove_small_objects, binary_dilation
 from skimage.feature import peak_local_max
 from scipy import ndimage
-from skimage.morphology import convex_hull_object
+from skimage.draw import circle
+from skimage.morphology import disk
+from skimage.filter.rank import tophat
 
 # for command line interface
 import argparse
@@ -44,17 +46,19 @@ from minkowski_metric import minkowski
 
 def make_binary_image(im, white_background, min_feature_size):
 
+    image = im.copy()
+
     if white_background:
-        im = np.abs(im-np.max(im))
+        image = np.abs(image-np.max(image))
 
     local_size = 50*min_feature_size
 
     # get rid of large background patches before local thresholding
     # do a global threshold
-    thresh = threshold_isodata(im)
+    thresh = threshold_isodata(image)
 
     # invert the image
-    binary = im < thresh
+    binary = image < thresh
 
     # make a distance map of the inverted image
     distance = ndimage.distance_transform_edt(binary)
@@ -67,11 +71,11 @@ def make_binary_image(im, white_background, min_feature_size):
     # and set that area to be background
     #convex_labels = convex_hull_object(mask)
 
-    im = im * (-mask)
+    image = image * (-mask)
 
     # the block size should be large enough to include 4 to 9 particles
     # need a better way to get rid of large blank spaces...
-    binary = threshold_adaptive(im,block_size=local_size)
+    binary = threshold_adaptive(image,block_size=local_size)
 
     # dilate the background mask to get rid of the mask edge effect from local threshold
     binary_dilation(mask, selem=np.ones((min_feature_size,min_feature_size)), out=mask)
@@ -113,6 +117,7 @@ def get_particle_centers(im, white_background, pixels_per_nm):
 
     labels = watershed(-distance, markers, mask=binary)
 
+
     # DEBUG
     # plt.figure(2)
     # plt.imshow(binary)
@@ -122,6 +127,7 @@ def get_particle_centers(im, white_background, pixels_per_nm):
     # plt.imshow(markers,cmap=plt.cm.spectral,alpha=0.5)
     # plt.figure(5)
     # plt.imshow(labels,cmap=plt.cm.prism)
+    # plt.gca().set_title('distance_mapped_labels')
     # plt.show()
 
     # get the particle centroids
@@ -137,7 +143,83 @@ def get_particle_centers(im, white_background, pixels_per_nm):
         # define the radius as half the average of the major and minor diameters
         radii.append(((props.minor_axis_length+props.major_axis_length)/4)/pixels_per_nm)
 
-    return np.asarray(pts,dtype=np.double),np.asarray(radii,dtype=np.double).reshape((-1,1))
+    # try finding peaks by template matching
+    radii = np.asarray(radii,dtype=np.double).reshape((-1,1))
+    mean_radius = np.mean(radii)*pixels_per_nm
+
+    if white_background:
+        im_mod = np.abs(im-np.max(im)).copy()
+    else:
+        im_mod = im.copy()
+
+    # get rid of large background patches before local thresholding
+    # do a global threshold
+    thresh = threshold_isodata(im_mod)
+
+    # invert the image
+    binary = im_mod < thresh
+
+    # make a distance map of the inverted image
+    distance = ndimage.distance_transform_edt(binary)
+
+    # do a global threshold on the distance map to select the biggest objects
+    thresh = threshold_otsu(distance)
+    mask = np.abs(-(distance > thresh))
+
+    # set large areas of background to zero using the mask
+    im_mod = im_mod * mask
+
+    # debug
+    # plt.figure(8)
+    # plt.imshow(im_mod)
+    # plt.gca().set_title('im_mod after masking')
+
+    topped_im = tophat(im_mod,disk(mean_radius))
+    topped_im = (np.max(topped_im)-topped_im) * mask
+
+    thresh = threshold_isodata(topped_im)
+    topped_im_bin = topped_im > thresh
+
+    distance = ndimage.distance_transform_edt(topped_im_bin)
+
+    # dilate the distance map to merge close peaks (merges multiple peaks in one particle)
+    distance = ndimage.grey_dilation(distance,size=min_feature_size)
+
+    local_maxi = peak_local_max(distance,indices=False,min_distance=min_feature_size)
+    markers = ndimage.label(local_maxi)[0]
+
+    labels_th = watershed(-distance, markers, mask=topped_im_bin)
+
+    # debug
+    # plt.figure(9)
+    # plt.imshow(topped_im)
+    # plt.gca().set_title('top hat of im_mod')
+    # plt.figure(10)
+    # plt.imshow(topped_im_bin)
+    # plt.gca().set_title('bin of top hat')
+    # plt.figure(11)
+    # plt.imshow(labels_th,cmap=plt.cm.prism)
+    # plt.gca().set_title('labels from top hat')
+    # plt.figure(12)
+    # plt.imshow(distance)
+    # plt.gca().set_title('distance from top hat bin')
+    # plt.show()
+
+    # get the particle centroids again, this time with better thresholding
+    regions = regionprops(labels_th)
+    pts = []
+    radii = []
+
+    for props in regions:
+        # centroid is [row, col] we want [col, row] aka [X,Y]
+        # so reverse the order
+        pts.append(props.centroid[::-1])
+
+        # define the radius as half the average of the major and minor diameters
+        radii.append(((props.minor_axis_length+props.major_axis_length)/4)/pixels_per_nm)
+
+
+    return np.asarray(pts,dtype=np.double), np.asarray(radii,dtype=np.double).reshape((-1,1))
 
 def get_image_scale(im):
 
