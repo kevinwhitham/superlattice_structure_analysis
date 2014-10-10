@@ -1,6 +1,6 @@
 # README #
 
-This is the readme document accompanying software to perform analysis on images of particles, currently called superlattice structure analysis. This software is distributed under the GNU Public License (GPL) v.3.0.
+This is the readme document accompanying software to perform analysis on images of particles, currently called Superlattice Structure Analysis. This software is distributed under the GNU Public License (GPL) v.3.0.
 
 ### What is this repository for? ###
 
