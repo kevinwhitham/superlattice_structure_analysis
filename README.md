@@ -17,7 +17,6 @@ The data is output as text files, numpy array files, and images.
 
 ### How do I get set up? ###
 
-* Summary of set up
 Install dependencies, clone the repository to your machine, run using the command:
 
 python structure_metric.py N filepath
