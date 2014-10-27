@@ -4,7 +4,6 @@ This is the readme document accompanying software to perform analysis on images 
 
 ### What is this repository for? ###
 
-* Quick summary
 This software performs analysis of images containing particles, connected or unconnected, to measure:
 
 radii
@@ -40,10 +39,7 @@ pts_file         the path to a text file with two columns (X and Y) specifying t
 pix_per_nm  floating point number specifying the image scaling in units of pixels/nm. Use this if the image does not have one
                      of the scale bars contained in the /input directory.
 
-* Configuration
-Tested on Mac OS X 10.9.4
-
-* Dependencies
+### Dependencies: ###
 Python (tested with 2.7) with packages matplotlib, numpy, scipy, scikit-image.
 
 ### Who do I talk to? ###
