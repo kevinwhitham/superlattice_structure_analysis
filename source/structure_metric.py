@@ -1,16 +1,10 @@
 # structure_metric.py
 # Calculates the Minkowski structure metrics for an array of points
 # Reference: Mickel, Walter, et al. "Shortcomings of the bond orientational order parameters for the analysis of disordered particulate matter." The Journal of chemical physics (2013)
-# 20140902 Kevin Whitham
-
-# for calculating facet angles
-from math import hypot
-from math import acos
+# 20140902 Kevin Whitham, Cornell University
 
 # general math
 import numpy as np
-from scipy import special as sp
-from scipy.spatial import distance_matrix
 
 # for data structures
 import collections
@@ -29,9 +23,12 @@ from scipy.spatial import Voronoi
 # for finding particle centers, diameters, etc.
 from skimage.measure import regionprops
 from skimage.filter import threshold_otsu,threshold_adaptive, threshold_isodata
-from skimage.morphology import watershed, remove_small_objects
+from skimage.morphology import watershed, remove_small_objects, binary_dilation
 from skimage.feature import peak_local_max
 from scipy import ndimage
+from skimage.draw import circle
+from skimage.morphology import disk
+from skimage.filter.rank import tophat
 
 # for command line interface
 import argparse
@@ -41,113 +38,63 @@ from os import path
 # for matching the scale bar
 from skimage.feature import match_template
 
-# returns the angle in radians of the interior angle made by 3 points
-def angle(pt1, pt2, pt3):
-    x1, y1 = pt1
-    x2, y2 = pt2
-    x3, y3 = pt3
-    
-    # change coordinates to put pt2 at the origin
-    x1 = x1-x2
-    y1 = y1-y2
-    x3 = x3-x2
-    y3 = y3-y2
+# minkowski structure metric function written and compiled with Cython
+from minkowski_metric import minkowski
+#import pyximport; pyximport.install()
+#import minkowski_metric
 
-    x2 = 0
-    y2 = 0
-
-    
-    inner_product = x1*x3 + y1*y3
-    len1 = hypot(x1, y1)
-    len2 = hypot(x3, y3)
-    if len1 > 0 and len2 > 0:
-        return acos(inner_product/(len1*len2))
-    else:
-        return 0
-
-# calculates the Minkowski structure metric of order l for each Voronoi cell in vor
-# ignoring cells with vertices less than zero or greater than limits
-def minkowski_structure_metric(vor,l,limits):
-
-    x_max = limits[0]
-    y_max = limits[1]
-    
-    msm = []
-    
-    region_index = 0
-
-    # for each Voronoi cell
-    for region in vor.regions:
-        
-        # for storing in msm
-        region_index += 1
-    
-        # clear the perimeter value
-        cellPerimeter = 0
-    
-        # skip infinite cells and empty regions
-        if len(region) and np.all(np.not_equal(region,-1)):
-            
-            # check if any points are off the image
-            polygon = np.asarray([vor.vertices[vert] for vert in region])
-            
-            if not (np.any(np.less(polygon,0)) or np.any(np.greater(polygon[:,0],x_max)) or np.any(np.greater(polygon[:,1],y_max))):
-
-                # make a 1-D arrays to hold information about each facet
-                facet_lengths = np.zeros(len(region))
-                facetNormalAngles = np.zeros(len(region))
-                interior_angles = np.zeros(len(region))
-                
-                # region contains the indices of the points which make the vertices of the simplex
-                for region_vert_index in range(len(region)):
-                    # euclidean distance
-                    vertex1 = vor.vertices[region[region_vert_index]]
-                    vertex2 = vor.vertices[region[(region_vert_index+1) % len(region)]]
-                    facet_lengths[region_vert_index] = distance_matrix([vertex1],[vertex2],p=2)
-
-                    # find the angle of the facets relative to the first facet
-                    vertex3 = vor.vertices[region[(region_vert_index+2) % len(region)]]
-                    interior_angles[region_vert_index] = angle(vertex1,vertex2,vertex3)
-
-                    # the angle of the facet vertex2 to vertex3
-                    # relative to the facet vertex1 to vertex2
-                    # is 180-90-interior_angle + the sum of all previous interior angles
-                    #if (region_vert_index+1) < len(region):
-                    rotation = np.pi-interior_angles[region_vert_index]
-                    facetNormalAngles[(region_vert_index+1) % len(region)] = (facetNormalAngles[region_vert_index]+rotation) % (2*np.pi)
-
-                    # add to the cell perimeter
-                    cellPerimeter += facet_lengths[region_vert_index]
-
-                # make the facetNormalAngles actually the normal angles, not the facet angles
-                facetNormalAngles += 3*np.pi/2
-
-                # seems logical to make the facet angles relative to the facet with the largest length?
-                #facetNormalAngles -= facetNormalAngles[np.argmax(facetLengths)]
-
-                sum1 = 0
-                sum2 = 0
-
-                for m in range(-l,l+1):
-                    for facet_length,normalAngle in zip(facet_lengths,facetNormalAngles):
-                        sum1 += facet_length/cellPerimeter * sp.sph_harm(m,l,theta=normalAngle,phi=np.pi/2)
-
-                    sum2 += np.abs(sum1)**2 #sum1*sum1.conjugate()
-                    sum1 = 0
-
-                msm.append([region_index-1,np.sqrt(4*np.pi/(2*l+1) * sum2)])
-    return msm
 
 def make_binary_image(im, white_background, min_feature_size):
 
+    image = im.copy()
+
     if white_background:
-        im = np.abs(im-np.max(im))
+        image = np.abs(image-np.max(image))
+
+    local_size = 50*min_feature_size
+
+    # get rid of large background patches before local thresholding
+    # do a global threshold
+    thresh = threshold_isodata(image)
+
+    # invert the image
+    binary = image < thresh
+
+    # make a distance map of the inverted image
+    distance = ndimage.distance_transform_edt(binary)
+
+    # do a global threshold on the distance map to select the biggest objects
+    # larger than a minimum size to prevent masking of particles in images with no empty patches
+    thresh = threshold_otsu(distance)
+    mask = distance > thresh
+
+    mask = -mask
+
+    # get the convex hull of the labeled regions
+    # and set that area to be background
+    #convex_labels = convex_hull_object(mask)
+
+    image = image * mask
 
     # the block size should be large enough to include 4 to 9 particles
-    binary = threshold_adaptive(im,block_size=50*min_feature_size)
+    binary = threshold_adaptive(image,block_size=local_size)
+
+    # DEBUG
+    plt.figure(1)
+    plt.imshow(binary)
+    plt.gca().set_title('Adaptive Threshold')
+
+    # dilate the background mask to get rid of the mask edge effect from local threshold
+    binary_dilation(mask, selem=np.ones((min_feature_size,min_feature_size)), out=mask)
+    binary = binary * mask
+
+    # DEBUG
+    plt.figure(1)
+    plt.imshow(binary)
+    plt.gca().set_title('Masked Patches')
 
     # formerly min_size=min_feature_size-1
-    binary = remove_small_objects(binary,min_size=max(min_feature_size/2,2))
+    binary = remove_small_objects(binary,min_size=max(min_feature_size,2))
 
     # dilation of the binary image helps congeal large particles with low contrast
     # that get broken up by threshold
@@ -158,6 +105,81 @@ def make_binary_image(im, white_background, min_feature_size):
 
     return binary
 
+def morphological_threshold(im, white_background, radii, pixels_per_nm, min_feature_size):
+
+    # radii should be in nm
+    radii = np.asarray(radii,dtype=np.double).reshape((-1,1))
+    mean_radius = np.mean(radii)*pixels_per_nm
+
+    # debug
+    # print('Mean radius (px): '+str(mean_radius))
+    # plt.figure(6)
+    # plt.hist(radii*pixels_per_nm,bins=len(radii)/4)
+    # plt.xlabel('particle radius (pixels)')
+    # plt.show()
+
+    if white_background:
+        im_mod = np.abs(im-np.max(im)).copy()
+    else:
+        im_mod = im.copy()
+
+    # get rid of large background patches before local thresholding
+    # do a global threshold
+    thresh = threshold_isodata(im_mod)
+
+    # invert the image
+    binary = im_mod < thresh
+
+    # make a distance map of the inverted image
+    distance = ndimage.distance_transform_edt(binary)
+
+    # do a global threshold on the distance map to select the biggest objects
+    thresh = threshold_otsu(distance)
+    mask = np.abs(-(distance > thresh))
+
+    # set large areas of background to zero using the mask
+    im_mod = im_mod * mask
+
+    # debug
+    # plt.figure(8)
+    # plt.imshow(im_mod)
+    # plt.gca().set_title('im_mod after masking')
+
+    #topped_im = tophat(im_mod,disk(mean_radius),mask=mask)
+    topped_im = match_template(im_mod,template=np.pad(disk(int(mean_radius)),pad_width=int(mean_radius), mode='constant',constant_values=0),pad_input=True)
+    topped_im *= mask
+
+    thresh = threshold_otsu(topped_im)
+    topped_im_bin = topped_im > thresh
+
+    distance = ndimage.distance_transform_edt(topped_im_bin)
+
+    # dilate the distance map to merge close peaks (merges multiple peaks in one particle)
+    distance = ndimage.grey_dilation(distance,size=min_feature_size)
+
+    local_maxi = peak_local_max(distance,indices=False,min_distance=min_feature_size)
+    markers = ndimage.label(local_maxi)[0]
+
+    labels_th = watershed(-distance, markers, mask=topped_im_bin)
+
+    # debug
+    # plt.figure(9)
+    # plt.imshow(topped_im)
+    # plt.gca().set_title('top hat of im_mod')
+    # plt.figure(10)
+    # plt.imshow(topped_im_bin)
+    # plt.gca().set_title('bin of top hat')
+    # plt.figure(11)
+    # plt.imshow(labels_th,cmap=plt.cm.prism)
+    # plt.gca().set_title('labels from top hat')
+    # plt.figure(12)
+    # plt.imshow(distance)
+    # plt.gca().set_title('distance from top hat bin')
+    # plt.show()
+
+    return labels_th
+
+
 def get_particle_centers(im, white_background, pixels_per_nm):
 
     if pixels_per_nm == 0:
@@ -165,7 +187,7 @@ def get_particle_centers(im, white_background, pixels_per_nm):
         pixels_per_nm = 5
 
     # minimum size object to look for
-    min_feature_size = int(2*pixels_per_nm)
+    min_feature_size = int(3*pixels_per_nm)
 
     binary = make_binary_image(im, white_background, min_feature_size)
 
@@ -182,17 +204,7 @@ def get_particle_centers(im, white_background, pixels_per_nm):
 
     labels = watershed(-distance, markers, mask=binary)
 
-    # DEBUG
-    # plt.figure(2)
-    # plt.imshow(binary)
-    # plt.figure(3)
-    # plt.imshow(distance)
-    # plt.figure(4)
-    # plt.imshow(markers,cmap=plt.cm.spectral,alpha=0.5)
-    # plt.figure(5)
-    # plt.imshow(labels,cmap=plt.cm.prism)
-    # plt.show()
-
+    # morphological thresholding
     # get the particle centroids
     regions = regionprops(labels)
     pts = []
@@ -206,11 +218,39 @@ def get_particle_centers(im, white_background, pixels_per_nm):
         # define the radius as half the average of the major and minor diameters
         radii.append(((props.minor_axis_length+props.major_axis_length)/4)/pixels_per_nm)
 
-    return np.asarray(pts),radii
+    labels = morphological_threshold(im, white_background, radii, pixels_per_nm, min_feature_size)
+
+    # DEBUG
+    # plt.figure(2)
+    # plt.imshow(binary)
+    # plt.figure(3)
+    # plt.imshow(distance)
+    # plt.figure(4)
+    # plt.imshow(markers,cmap=plt.cm.spectral,alpha=0.5)
+    # plt.figure(5)
+    # plt.imshow(labels,cmap=plt.cm.prism)
+    # plt.gca().set_title('distance_mapped_labels')
+    # plt.show()
+
+    # get the particle centroids again, this time with better thresholding
+    regions = regionprops(labels)
+    pts = []
+    radii = []
+
+    for props in regions:
+        # centroid is [row, col] we want [col, row] aka [X,Y]
+        # so reverse the order
+        pts.append(props.centroid[::-1])
+
+        # define the radius as half the average of the major and minor diameters
+        radii.append(((props.minor_axis_length+props.major_axis_length)/4)/pixels_per_nm)
+
+
+    return np.asarray(pts,dtype=np.double), np.asarray(radii,dtype=np.double).reshape((-1,1))
 
 def get_image_scale(im):
 
-    scale = 0
+    scale = 0.0
     bar_width = 0
 
     input_path = '../test_data/input/'
@@ -244,7 +284,7 @@ def get_image_scale(im):
     else:
         print('No scale bar found')
 
-    return [scale,((985,1369-bar_width),(1025,1369))]
+    return [np.double(scale),((985,1369-bar_width),(1025,1369))]
 
 def create_custom_colormap():
 
@@ -270,7 +310,7 @@ def plot_symmetry(im,msm,bond_order,symmetry_colormap):
         verts = np.asarray([vor.vertices[index] for index in region])
         cell_patches.append(Polygon(verts,closed=True,facecolor=symmetry_colormap(metric),edgecolor='k'))
 
-    pc = PatchCollection(cell_patches,match_original=False,cmap=symmetry_colormap,alpha=0.5)
+    pc = PatchCollection(cell_patches,match_original=False,cmap=symmetry_colormap,alpha=1)
     pc.set_array(np.asarray(metric_list))
     plt.gca().add_collection(pc)
 
@@ -286,13 +326,13 @@ def plot_symmetry(im,msm,bond_order,symmetry_colormap):
 
     # save this plot to a file
     plt.gca().set_axis_off()
-    plt.gca().set_title('q'+str(bond_order))
-    plt.savefig(output_data_path+'/'+filename+'_q'+str(bond_order)+'_map.pdf',bbox_inches='tight')
+    plt.gca().set_title('$\psi_'+str(bond_order)+'$')
+    plt.savefig(output_data_path+'/'+filename+'_q'+str(bond_order)+'_map.png',bbox_inches='tight',dpi=300)
 
     # plot a histogram of the Minkowski structure metrics
     plt.figure(2)
     plt.hist(metric_list,bins=len(msm)/4)
-    plt.xlabel('q'+str(bond_order))
+    plt.xlabel('$\psi_'+str(bond_order)+'$')
     plt.ylabel('Count')
     plt.savefig(output_data_path+'/'+filename+'_q'+str(bond_order)+'_hist.png', bbox_inches='tight')
 
@@ -342,6 +382,7 @@ def plot_nn_distance(im,line_segments,nn_distance_list):
 parser = argparse.ArgumentParser()
 parser.add_argument('-b','--black', help='black background', action='store_true')
 parser.add_argument('-n','--noplot', help='do not plot data', action='store_true')
+parser.add_argument('order',help='order of the symmetry function', type=int, default=4)
 parser.add_argument('img_file',help='image file to analyze')
 parser.add_argument('pts_file',nargs='?',help='XY point data file',default='')
 parser.add_argument('pix_per_nm',nargs='?',help='scale in pixels per nm',default=0.0,type=float)
@@ -382,17 +423,17 @@ if len(args.pts_file) == 0:
     # find the centroid of each particle in the image
     pts,radii = get_particle_centers(im,background,pixels_per_nm)
 
-    # save the input points to a file
-    header_string = 'Particle centroids\n'
-    header_string += 'length: '+str(len(pts))+'\n'
-    header_string += 'X (pixel)\tY (pixel)'
-    np.savetxt(output_data_path+'/'+filename+'_centroids.txt',pts,fmt='%.4e',delimiter='\t',header=header_string)
+    assert len(pts) == len(radii)
 
-    # save the radii to a file
-    header_string = 'Particle radii - half of the average of the major and minor diameters of an ellipse fit to the particle\n'
-    header_string += 'length: '+str(len(radii))+'\n'
-    header_string += 'radius (nm)'
-    np.savetxt(output_data_path+'/'+filename+'_radii.txt',radii,fmt='%.4e',delimiter='\t',header=header_string)
+    particle_data = np.hstack((pts,radii))
+
+    # save the input points to a file
+    header_string = 'Particle centroids in pixel units\n'
+    header_string += 'Particle radii - half of the average of the major and minor diameters of an ellipse fit to the particle area\n'
+    header_string += 'total particles: '+str(len(pts))+'\n'
+    header_string += 'X (pixel)\tY (pixel)\tradius (nm)'
+    np.savetxt(output_data_path+'/'+filename+'_particles.txt',particle_data,fmt='%.4e',delimiter='\t',header=header_string)
+
 else:
     print("User specified points")
     pts = np.loadtxt(args.pts_file,skiprows=1,usecols=(1,2),ndmin=2)
@@ -415,10 +456,16 @@ if not args.noplot:
 
 vor = Voronoi(pts)
 
-bond_order = 4
+bond_order = args.order
+
+if not bond_order > 0:
+    raise ValueError('order parameter should be > 0')
 
 # minkowski_structure_metric returns a list with region_index, metric
-msm = minkowski_structure_metric(vor,bond_order,(im.shape[1],im.shape[0]))
+msm = minkowski(vor.vertices,vor.regions,bond_order,(im.shape[1],im.shape[0]))
+
+if np.any(np.isnan(np.asarray(msm)[:,1])):
+    raise ValueError('nan found in structure metric array')
 
 if not args.noplot:
     plt.figure(1)
@@ -444,8 +491,14 @@ nn_dist_list = []
 bond_list = []
 
 # graphs for random access, Monte Carlo?
-bond_graph = sparse.lil_matrix((len(pts),len(pts)),dtype=np.float32)
-distance_graph = sparse.lil_matrix((len(pts),len(pts)),dtype=np.float32)
+bond_graph = sparse.lil_matrix((len(pts),len(pts)),dtype=np.double)
+distance_x_graph = sparse.lil_matrix((len(pts),len(pts)),dtype=np.double)
+distance_y_graph = sparse.lil_matrix((len(pts),len(pts)),dtype=np.double)
+
+# keep track of boundary particles
+# naively there is a maximum of len(pts) particles that could be on the boundary
+# since we don't want to allocate all of them or append a site more than once to a list, use a sparse matrix
+boundary_sites = sparse.lil_matrix((len(pts),1),dtype=np.int8)
 
 # for saving edge data to file
 edges = []
@@ -467,17 +520,35 @@ for ridge_vert_indices,input_pair_indices in zip(vor.ridge_vertices,vor.ridge_po
         
         x_vals = zip(vertex1,vertex2)[0]
         y_vals = zip(vertex1,vertex2)[1]
-        
+
+        input_pt1 = pts[input_pair_indices[0]]
+        input_pt2 = pts[input_pair_indices[1]]
+
         if np.all((np.greater(x_vals,0),np.greater(y_vals,0),np.less(x_vals,im.shape[1]),np.less(y_vals,im.shape[0]))):
 
             # get the nearest neighbor distance
-            input_pt1 = pts[input_pair_indices[0]]
-            input_pt2 = pts[input_pair_indices[1]]
-            nn_x_dist = np.abs(input_pt1[0]-input_pt2[0])
-            nn_y_dist = np.abs(input_pt1[1]-input_pt2[1])
-            nn_distance = np.sqrt(nn_x_dist**2 + nn_y_dist**2)/pixels_per_nm
+            # the directional x and y distance to move from pt1 to pt2
+            nn_x_dist = (input_pt2[0]-input_pt1[0])/pixels_per_nm
+            nn_y_dist = (input_pt2[1]-input_pt1[1])/pixels_per_nm
 
-            distance_graph[input_pair_indices[0],input_pair_indices[1]] = nn_distance
+            # if the interparticle distance computes to zero
+            # it is because of the resolution of the image
+            # therefore set the distance to the uncertainty of the measurement
+            # this avoids dropping of zero-valued elements later in sparse matrix operations
+            # this should only be an issue for a few particles with the lowest magnification images
+            if nn_x_dist == 0.0:
+                nn_x_dist = 1.0/pixels_per_nm
+
+            if nn_y_dist == 0.0:
+                nn_y_dist = 1.0/pixels_per_nm
+
+            nn_distance = np.sqrt(nn_x_dist**2 + nn_y_dist**2)
+
+            # distance_..._graph[i,j] is the distance to move from point i to point j
+            distance_x_graph[input_pair_indices[0],input_pair_indices[1]] = nn_x_dist
+            distance_x_graph[input_pair_indices[1],input_pair_indices[0]] = -nn_x_dist
+            distance_y_graph[input_pair_indices[0],input_pair_indices[1]] = nn_y_dist
+            distance_y_graph[input_pair_indices[1],input_pair_indices[0]] = -nn_y_dist
             nn_dist_list.append(nn_distance)
 
             # get the bond width
@@ -494,6 +565,7 @@ for ridge_vert_indices,input_pair_indices in zip(vor.ridge_vertices,vor.ridge_po
 
             bond_width = np.sum(binary_im[y_range,x_range])/pixels_per_nm
             bond_graph[input_pair_indices[0],input_pair_indices[1]] = bond_width
+            bond_graph[input_pair_indices[1],input_pair_indices[0]] = bond_width
             bond_list.append(bond_width)
 
             # make the line segments for plotting bonds, neighbor distances, whatever
@@ -506,6 +578,10 @@ for ridge_vert_indices,input_pair_indices in zip(vor.ridge_vertices,vor.ridge_po
                 nn_dist_list_filtered.append(nn_distance)
                 line_segments_filtered.append(np.asarray([pts[input_pair_indices[0]],pts[input_pair_indices[1]]]))
     
+        else:
+            # at least one ridge vertex is off the image
+            # these two input points are boundary sites
+            boundary_sites[input_pair_indices,0] = np.int(1)
 
 if not args.noplot:
 
@@ -539,9 +615,21 @@ if not args.noplot:
 
 # save edge data to file
 header_string =     'pt1 and pt2 are the indices of the points between which the distance and bond width are given\n'
-header_string +=    'length: '+str(len(edges))+'\n'
+header_string +=    'total edges: '+str(len(edges))+'\n'
 header_string +=    'pt1\tpt2\tdistance (nm)\tbond width (nm)'
 np.savetxt(output_data_path+'/'+filename+'_edges.txt',np.asarray(edges),fmt=('%u','%u','%.3f','%.3f'),delimiter='\t',header=header_string)
 
 # show it all
 #plt.show()
+
+# save the graphs to files to use in Monte Carlo
+bond_graph_csr = bond_graph.tocsr()
+distance_x_graph_csr = distance_x_graph.tocsr()
+distance_y_graph_csr = distance_y_graph.tocsr()
+boundary_sites_csc = boundary_sites.tocsc()
+radii = np.asarray(radii.reshape((-1,)),dtype=np.double)
+np.savez(output_data_path+'/'+filename+'_bond_graph',bond_graph=bond_graph_csr)
+np.savez(output_data_path+'/'+filename+'_x_distance_graph',data=distance_x_graph_csr.data,indices=distance_x_graph_csr.indices,indptr=distance_x_graph_csr.indptr)
+np.savez(output_data_path+'/'+filename+'_y_distance_graph',data=distance_y_graph_csr.data,indices=distance_y_graph_csr.indices,indptr=distance_y_graph_csr.indptr)
+np.savez(output_data_path+'/'+filename+'_boundary_graph',data=boundary_sites_csc.data,indices=boundary_sites_csc.indices,indptr=boundary_sites_csc.indptr)
+np.savez(output_data_path+'/'+filename+'_site_data',radii=radii,pts=pts,pixels_per_nm=np.asarray(pixels_per_nm),box_x_size=np.asarray(im.shape[1]/pixels_per_nm))
