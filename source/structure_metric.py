@@ -64,22 +64,34 @@ def make_binary_image(im, white_background, min_feature_size):
     distance = ndimage.distance_transform_edt(binary)
 
     # do a global threshold on the distance map to select the biggest objects
+    # larger than a minimum size to prevent masking of particles in images with no empty patches
     thresh = threshold_otsu(distance)
     mask = distance > thresh
+
+    mask = -mask
 
     # get the convex hull of the labeled regions
     # and set that area to be background
     #convex_labels = convex_hull_object(mask)
 
-    image = image * (-mask)
+    image = image * mask
 
     # the block size should be large enough to include 4 to 9 particles
-    # need a better way to get rid of large blank spaces...
     binary = threshold_adaptive(image,block_size=local_size)
+
+    # DEBUG
+    plt.figure(1)
+    plt.imshow(binary)
+    plt.gca().set_title('Adaptive Threshold')
 
     # dilate the background mask to get rid of the mask edge effect from local threshold
     binary_dilation(mask, selem=np.ones((min_feature_size,min_feature_size)), out=mask)
-    binary = binary * (-mask)
+    binary = binary * mask
+
+    # DEBUG
+    plt.figure(1)
+    plt.imshow(binary)
+    plt.gca().set_title('Masked Patches')
 
     # formerly min_size=min_feature_size-1
     binary = remove_small_objects(binary,min_size=max(min_feature_size,2))
@@ -93,59 +105,18 @@ def make_binary_image(im, white_background, min_feature_size):
 
     return binary
 
-def get_particle_centers(im, white_background, pixels_per_nm):
+def morphological_threshold(im, white_background, radii, pixels_per_nm, min_feature_size):
 
-    if pixels_per_nm == 0:
-        # default value
-        pixels_per_nm = 5
-
-    # minimum size object to look for
-    min_feature_size = int(3*pixels_per_nm)
-
-    binary = make_binary_image(im, white_background, min_feature_size)
-
-    # create a distance map to find the particle centers
-    # as the points with maximal distance to the background
-    distance = ndimage.distance_transform_edt(binary)
-
-    # dilate the distance map to merge close peaks (merges multiple peaks in one particle)
-    distance = ndimage.grey_dilation(distance,size=min_feature_size)
-
-    # min_distance=5 for large particles
-    local_maxi = peak_local_max(distance,indices=False,min_distance=min_feature_size)
-    markers = ndimage.label(local_maxi)[0]
-
-    labels = watershed(-distance, markers, mask=binary)
-
-
-    # DEBUG
-    # plt.figure(2)
-    # plt.imshow(binary)
-    # plt.figure(3)
-    # plt.imshow(distance)
-    # plt.figure(4)
-    # plt.imshow(markers,cmap=plt.cm.spectral,alpha=0.5)
-    # plt.figure(5)
-    # plt.imshow(labels,cmap=plt.cm.prism)
-    # plt.gca().set_title('distance_mapped_labels')
-    # plt.show()
-
-    # get the particle centroids
-    regions = regionprops(labels)
-    pts = []
-    radii = []
-
-    for props in regions:
-        # centroid is [row, col] we want [col, row] aka [X,Y]
-        # so reverse the order
-        pts.append(props.centroid[::-1])
-
-        # define the radius as half the average of the major and minor diameters
-        radii.append(((props.minor_axis_length+props.major_axis_length)/4)/pixels_per_nm)
-
-    # try finding peaks by template matching
+    # radii should be in nm
     radii = np.asarray(radii,dtype=np.double).reshape((-1,1))
     mean_radius = np.mean(radii)*pixels_per_nm
+
+    # debug
+    # print('Mean radius (px): '+str(mean_radius))
+    # plt.figure(6)
+    # plt.hist(radii*pixels_per_nm,bins=len(radii)/4)
+    # plt.xlabel('particle radius (pixels)')
+    # plt.show()
 
     if white_background:
         im_mod = np.abs(im-np.max(im)).copy()
@@ -174,10 +145,11 @@ def get_particle_centers(im, white_background, pixels_per_nm):
     # plt.imshow(im_mod)
     # plt.gca().set_title('im_mod after masking')
 
-    topped_im = tophat(im_mod,disk(mean_radius))
-    topped_im = (np.max(topped_im)-topped_im) * mask
+    #topped_im = tophat(im_mod,disk(mean_radius),mask=mask)
+    topped_im = match_template(im_mod,template=np.pad(disk(int(mean_radius)),pad_width=int(mean_radius), mode='constant',constant_values=0),pad_input=True)
+    topped_im *= mask
 
-    thresh = threshold_isodata(topped_im)
+    thresh = threshold_otsu(topped_im)
     topped_im_bin = topped_im > thresh
 
     distance = ndimage.distance_transform_edt(topped_im_bin)
@@ -205,8 +177,63 @@ def get_particle_centers(im, white_background, pixels_per_nm):
     # plt.gca().set_title('distance from top hat bin')
     # plt.show()
 
+    return labels_th
+
+
+def get_particle_centers(im, white_background, pixels_per_nm):
+
+    if pixels_per_nm == 0:
+        # default value
+        pixels_per_nm = 5
+
+    # minimum size object to look for
+    min_feature_size = int(3*pixels_per_nm)
+
+    binary = make_binary_image(im, white_background, min_feature_size)
+
+    # create a distance map to find the particle centers
+    # as the points with maximal distance to the background
+    distance = ndimage.distance_transform_edt(binary)
+
+    # dilate the distance map to merge close peaks (merges multiple peaks in one particle)
+    distance = ndimage.grey_dilation(distance,size=min_feature_size)
+
+    # min_distance=5 for large particles
+    local_maxi = peak_local_max(distance,indices=False,min_distance=min_feature_size)
+    markers = ndimage.label(local_maxi)[0]
+
+    labels = watershed(-distance, markers, mask=binary)
+
+    # morphological thresholding
+    # get the particle centroids
+    regions = regionprops(labels)
+    pts = []
+    radii = []
+
+    for props in regions:
+        # centroid is [row, col] we want [col, row] aka [X,Y]
+        # so reverse the order
+        pts.append(props.centroid[::-1])
+
+        # define the radius as half the average of the major and minor diameters
+        radii.append(((props.minor_axis_length+props.major_axis_length)/4)/pixels_per_nm)
+
+    labels = morphological_threshold(im, white_background, radii, pixels_per_nm, min_feature_size)
+
+    # DEBUG
+    # plt.figure(2)
+    # plt.imshow(binary)
+    # plt.figure(3)
+    # plt.imshow(distance)
+    # plt.figure(4)
+    # plt.imshow(markers,cmap=plt.cm.spectral,alpha=0.5)
+    # plt.figure(5)
+    # plt.imshow(labels,cmap=plt.cm.prism)
+    # plt.gca().set_title('distance_mapped_labels')
+    # plt.show()
+
     # get the particle centroids again, this time with better thresholding
-    regions = regionprops(labels_th)
+    regions = regionprops(labels)
     pts = []
     radii = []
 
@@ -283,7 +310,7 @@ def plot_symmetry(im,msm,bond_order,symmetry_colormap):
         verts = np.asarray([vor.vertices[index] for index in region])
         cell_patches.append(Polygon(verts,closed=True,facecolor=symmetry_colormap(metric),edgecolor='k'))
 
-    pc = PatchCollection(cell_patches,match_original=False,cmap=symmetry_colormap,alpha=0.5)
+    pc = PatchCollection(cell_patches,match_original=False,cmap=symmetry_colormap,alpha=1)
     pc.set_array(np.asarray(metric_list))
     plt.gca().add_collection(pc)
 
@@ -299,13 +326,13 @@ def plot_symmetry(im,msm,bond_order,symmetry_colormap):
 
     # save this plot to a file
     plt.gca().set_axis_off()
-    plt.gca().set_title('q'+str(bond_order))
-    plt.savefig(output_data_path+'/'+filename+'_q'+str(bond_order)+'_map.pdf',bbox_inches='tight')
+    plt.gca().set_title('$\psi_'+str(bond_order)+'$')
+    plt.savefig(output_data_path+'/'+filename+'_q'+str(bond_order)+'_map.png',bbox_inches='tight',dpi=300)
 
     # plot a histogram of the Minkowski structure metrics
     plt.figure(2)
     plt.hist(metric_list,bins=len(msm)/4)
-    plt.xlabel('q'+str(bond_order))
+    plt.xlabel('$\psi_'+str(bond_order)+'$')
     plt.ylabel('Count')
     plt.savefig(output_data_path+'/'+filename+'_q'+str(bond_order)+'_hist.png', bbox_inches='tight')
 
