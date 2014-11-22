@@ -335,7 +335,12 @@ def plot_symmetry(im,msm,bond_order,symmetry_colormap, mask, outline):
 
     if not outline:
         # add the colorbar
-        plt.colorbar(pc)
+        cbar = plt.colorbar(pc)
+        box = cbar.ax.get_position()
+        cbar.ax.set_position([box.x0, box.y0, box.width, box.height*0.92])
+        cbar.ax.set_xlabel('$\Psi_'+str(bond_order)+'$', fontsize=18)
+        cbar.ax.xaxis.set_label_position('top')
+        cbar.ax.xaxis.set_label_coords(0.5, 1.04)
 
     # set the limits for the plot
     # set the x axis range
@@ -346,7 +351,6 @@ def plot_symmetry(im,msm,bond_order,symmetry_colormap, mask, outline):
 
     # save this plot to a file
     plt.gca().set_axis_off()
-    plt.gca().set_title('$\psi_'+str(bond_order)+'$')
     plt.savefig(output_data_path+'/'+filename+'_Psi'+str(bond_order)+'_map.png',bbox_inches='tight',dpi=300)
 
     # plot a histogram of the Minkowski structure metrics
