@@ -258,10 +258,13 @@ def get_image_scale(im):
     # images of scale bars to match with the input image
     # second element is the scale in units of pixels/nm
     scale_bars = []
+    scale_bars.append([skimio.imread(input_path+'Scale_0p654px_nm.tif',as_grey=True),0.654])
     scale_bars.append([skimio.imread(input_path+'Scale_1p425px_nm.tif',as_grey=True),1.425])
+    scale_bars.append([skimio.imread(input_path+'Scale_2p88px_nm.tif',as_grey=True),2.88])
     scale_bars.append([skimio.imread(input_path+'Scale_3p44px_nm.tif',as_grey=True),3.44])
     scale_bars.append([skimio.imread(input_path+'Scale_5p14px_nm.tif',as_grey=True),5.14])
     scale_bars.append([skimio.imread(input_path+'Scale_2px_nm.tif',as_grey=True),2])
+    scale_bars.append([skimio.imread(input_path+'Scale_7p258px_nm.tif',as_grey=True),7.258])
     scale_bars.append([skimio.imread(input_path+'Scale_9p4px_nm.tif',as_grey=True),9.4])
 
     match_score = []
@@ -276,13 +279,15 @@ def get_image_scale(im):
         match_score.append(result[row][col])
 
     # the match score should be about 0.999999
-    if np.max(match_score) > 0.9:
+    if np.max(match_score) > 0.99:
 
         scale = scale_bars[np.argmax(match_score)][1]
         bar_width = scale_bars[np.argmax(match_score)][0].shape[1]
+        
+        print('Scale: '+str(scale)+' pixels/nm, Score: '+str(np.max(match_score)))
 
     else:
-        print('No scale bar found')
+        print('!!!!!!!!!!!!!!!!!!!! No scale bar found !!!!!!!!!!!!!!!!!!!!!')
 
     return [np.double(scale),((985,1369-bar_width),(1025,1369))]
 
