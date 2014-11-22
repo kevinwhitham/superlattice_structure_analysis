@@ -51,7 +51,7 @@ def make_binary_image(im, white_background, min_feature_size):
     if white_background:
         image = np.abs(image-np.max(image))
 
-    local_size = 50*min_feature_size
+    local_size = 5*min_feature_size
 
     # get rid of large background patches before local thresholding
     # do a global threshold
@@ -80,18 +80,19 @@ def make_binary_image(im, white_background, min_feature_size):
     binary = threshold_adaptive(image,block_size=local_size)
 
     # DEBUG
-    plt.figure(1)
-    plt.imshow(binary)
-    plt.gca().set_title('Adaptive Threshold')
+    # plt.figure(1)
+    # plt.imshow(binary)
+    # plt.gca().set_title('Adaptive Threshold')
 
     # dilate the background mask to get rid of the mask edge effect from local threshold
     binary_dilation(mask, selem=np.ones((min_feature_size,min_feature_size)), out=mask)
     binary = binary * mask
 
     # DEBUG
-    plt.figure(1)
-    plt.imshow(binary)
-    plt.gca().set_title('Masked Patches')
+    # plt.figure(2)
+    # plt.imshow(binary)
+    # plt.gca().set_title('Masked Patches')
+    # plt.show()
 
     # formerly min_size=min_feature_size-1
     binary = remove_small_objects(binary,min_size=max(min_feature_size,2))
@@ -103,7 +104,7 @@ def make_binary_image(im, white_background, min_feature_size):
     # 3 iterations is better for large particles with low contrast
     binary = ndimage.binary_closing(binary,iterations=1)
 
-    return binary
+    return binary, mask
 
 def morphological_threshold(im, white_background, radii, pixels_per_nm, min_feature_size):
 
@@ -146,7 +147,7 @@ def morphological_threshold(im, white_background, radii, pixels_per_nm, min_feat
     # plt.gca().set_title('im_mod after masking')
 
     #topped_im = tophat(im_mod,disk(mean_radius),mask=mask)
-    topped_im = match_template(im_mod,template=np.pad(disk(int(mean_radius)),pad_width=int(mean_radius), mode='constant',constant_values=0),pad_input=True)
+    topped_im = match_template(im_mod,template=np.pad(disk(int(mean_radius/2)),pad_width=int(mean_radius), mode='constant',constant_values=0),pad_input=True)
     topped_im *= mask
 
     thresh = threshold_otsu(topped_im)
@@ -180,7 +181,7 @@ def morphological_threshold(im, white_background, radii, pixels_per_nm, min_feat
     return labels_th
 
 
-def get_particle_centers(im, white_background, pixels_per_nm):
+def get_particle_centers(im, white_background, pixels_per_nm, morph):
 
     if pixels_per_nm == 0:
         # default value
@@ -189,7 +190,7 @@ def get_particle_centers(im, white_background, pixels_per_nm):
     # minimum size object to look for
     min_feature_size = int(3*pixels_per_nm)
 
-    binary = make_binary_image(im, white_background, min_feature_size)
+    binary, mask = make_binary_image(im, white_background, min_feature_size)
 
     # create a distance map to find the particle centers
     # as the points with maximal distance to the background
@@ -202,23 +203,24 @@ def get_particle_centers(im, white_background, pixels_per_nm):
     local_maxi = peak_local_max(distance,indices=False,min_distance=min_feature_size)
     markers = ndimage.label(local_maxi)[0]
 
-    labels = watershed(-distance, markers, mask=binary)
+    labels = watershed(-distance, markers, connectivity=None, offset=None, mask=binary)
 
     # morphological thresholding
-    # get the particle centroids
-    regions = regionprops(labels)
-    pts = []
-    radii = []
-
-    for props in regions:
-        # centroid is [row, col] we want [col, row] aka [X,Y]
-        # so reverse the order
-        pts.append(props.centroid[::-1])
-
-        # define the radius as half the average of the major and minor diameters
-        radii.append(((props.minor_axis_length+props.major_axis_length)/4)/pixels_per_nm)
-
-    labels = morphological_threshold(im, white_background, radii, pixels_per_nm, min_feature_size)
+    if morph:
+        # get the particle centroids
+        regions = regionprops(labels)
+        pts = []
+        radii = []
+        
+        for props in regions:
+           # centroid is [row, col] we want [col, row] aka [X,Y]
+           # so reverse the order
+           pts.append(props.centroid[::-1])
+        
+           # define the radius as half the average of the major and minor diameters
+           radii.append(((props.minor_axis_length+props.major_axis_length)/4)/pixels_per_nm)
+        
+        labels = morphological_threshold(im, white_background, radii, pixels_per_nm, min_feature_size)
 
     # DEBUG
     # plt.figure(2)
@@ -246,7 +248,7 @@ def get_particle_centers(im, white_background, pixels_per_nm):
         radii.append(((props.minor_axis_length+props.major_axis_length)/4)/pixels_per_nm)
 
 
-    return np.asarray(pts,dtype=np.double), np.asarray(radii,dtype=np.double).reshape((-1,1))
+    return np.asarray(pts,dtype=np.double), np.asarray(radii,dtype=np.double).reshape((-1,1)), mask
 
 def get_image_scale(im):
 
@@ -304,23 +306,36 @@ def create_custom_colormap():
 
     return LinearSegmentedColormap.from_list(name="custom", colors=value_rgb_pairs, N=16)
 
-def plot_symmetry(im,msm,bond_order,symmetry_colormap):
-
+def plot_symmetry(im,msm,bond_order,symmetry_colormap, mask, outline):
+    
     cell_patches = []
     metric_list = []
     for region_index,metric in msm:
-        metric_list.append(metric)
         region_index = int(region_index)
         region = vor.regions[region_index]
         verts = np.asarray([vor.vertices[index] for index in region])
-        cell_patches.append(Polygon(verts,closed=True,facecolor=symmetry_colormap(metric),edgecolor='k'))
-
-    pc = PatchCollection(cell_patches,match_original=False,cmap=symmetry_colormap,alpha=1)
-    pc.set_array(np.asarray(metric_list))
+        
+        # don't plot cells inside masked off regions of the image (blank patches)
+        int_verts = np.asarray(verts,dtype='i4')
+        if np.all(mask[int_verts[:,1],int_verts[:,0]] > 0):
+            if outline:
+                cell_patches.append(Polygon(verts,closed=True,facecolor='none',edgecolor='k'))
+            else:
+                cell_patches.append(Polygon(verts,closed=True,edgecolor='none'))
+            
+            metric_list.append(metric)
+            
+    if outline:
+        pc = PatchCollection(cell_patches,match_original=True,alpha=1)
+    else:
+        pc = PatchCollection(cell_patches,match_original=False, cmap=symmetry_colormap, edgecolor='k', alpha=1)
+        pc.set_array(np.asarray(metric_list))
+        
     plt.gca().add_collection(pc)
 
-    # add the colorbar
-    plt.colorbar(pc)
+    if not outline:
+        # add the colorbar
+        plt.colorbar(pc)
 
     # set the limits for the plot
     # set the x axis range
@@ -387,6 +402,8 @@ def plot_nn_distance(im,line_segments,nn_distance_list):
 parser = argparse.ArgumentParser()
 parser.add_argument('-b','--black', help='black background', action='store_true')
 parser.add_argument('-n','--noplot', help='do not plot data', action='store_true')
+parser.add_argument('-m','--morph', help='use morphological filtering', action='store_true')
+parser.add_argument('-o','--outline', help='draw Voronoi cell outlines only', action='store_true')
 parser.add_argument('order',help='order of the symmetry function', type=int, default=4)
 parser.add_argument('img_file',help='image file to analyze')
 parser.add_argument('pts_file',nargs='?',help='XY point data file',default='')
@@ -405,7 +422,10 @@ filename = str.split(path.basename(args.img_file),'.')[0]
 background = 1
 if args.black:
     background = 0
-    print("User specified black background")
+    print('User specified black background')
+    
+if args.morph:
+    print('Using morphological filtering')
 
 pixels_per_nm = args.pix_per_nm
 
@@ -426,7 +446,7 @@ else:
 
 if len(args.pts_file) == 0:
     # find the centroid of each particle in the image
-    pts,radii = get_particle_centers(im,background,pixels_per_nm)
+    pts, radii, mask = get_particle_centers(im,background,pixels_per_nm,args.morph)
 
     assert len(pts) == len(radii)
 
@@ -443,6 +463,7 @@ else:
     print("User specified points")
     pts = np.loadtxt(args.pts_file,skiprows=1,usecols=(1,2),ndmin=2)
     radii = []
+    mask = np.ones(im.shape, dtype='i4')
 
 # ideal square grid test case
 #x = np.linspace(-0.5, 2.5, 5)
@@ -479,7 +500,7 @@ if not args.noplot:
 
     symmetry_colormap = plt.get_cmap('RdBu_r')
 
-    plot_symmetry(im,msm,bond_order,symmetry_colormap)
+    plot_symmetry(im,msm,bond_order,symmetry_colormap,mask,args.outline)
 
 
 # save the metrics to a file
@@ -528,7 +549,8 @@ for ridge_vert_indices,input_pair_indices in zip(vor.ridge_vertices,vor.ridge_po
 
         input_pt1 = pts[input_pair_indices[0]]
         input_pt2 = pts[input_pair_indices[1]]
-
+        
+        # check if the voronoi region vertices are within the image bounds
         if np.all((np.greater(x_vals,0),np.greater(y_vals,0),np.less(x_vals,im.shape[1]),np.less(y_vals,im.shape[0]))):
 
             # get the nearest neighbor distance
