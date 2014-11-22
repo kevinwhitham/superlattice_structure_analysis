@@ -347,14 +347,14 @@ def plot_symmetry(im,msm,bond_order,symmetry_colormap, mask, outline):
     # save this plot to a file
     plt.gca().set_axis_off()
     plt.gca().set_title('$\psi_'+str(bond_order)+'$')
-    plt.savefig(output_data_path+'/'+filename+'_q'+str(bond_order)+'_map.png',bbox_inches='tight',dpi=300)
+    plt.savefig(output_data_path+'/'+filename+'_Psi'+str(bond_order)+'_map.png',bbox_inches='tight',dpi=300)
 
     # plot a histogram of the Minkowski structure metrics
     plt.figure(2)
     plt.hist(metric_list,bins=len(msm)/4)
     plt.xlabel('$\psi_'+str(bond_order)+'$')
     plt.ylabel('Count')
-    plt.savefig(output_data_path+'/'+filename+'_q'+str(bond_order)+'_hist.png', bbox_inches='tight')
+    plt.savefig(output_data_path+'/'+filename+'_Psi'+str(bond_order)+'_hist.png', bbox_inches='tight')
 
 def plot_bonds(im,line_segments,bond_list):
 
@@ -504,11 +504,11 @@ if not args.noplot:
 
 
 # save the metrics to a file
-header_string =     str(bond_order)+'-fold Minkowski metric (q'+str(bond_order)+')\n'
+header_string =     str(bond_order)+'-fold Minkowski metric (psi'+str(bond_order)+')\n'
 header_string +=    'Reference: Mickel, Walter, et al. The Journal of Chemical Physics (2013)\n'
 header_string +=    'length: '+str(len(msm))+'\n'
-header_string +=    'region_index\tq'+str(bond_order)
-np.savetxt(output_data_path+'/'+filename+'_q'+str(bond_order)+'_data.txt',msm,fmt=('%u','%.3f'),delimiter='\t',header=header_string)
+header_string +=    'region_index\tpsi'+str(bond_order)
+np.savetxt(output_data_path+'/'+filename+'_Psi'+str(bond_order)+'_data.txt',msm,fmt=('%u','%.3f'),delimiter='\t',header=header_string)
 
 
 # Calculate the "bond strengths"
