@@ -346,23 +346,58 @@ def radius_offset(radius_std):
         return np.random.normal(loc=1, scale=radius_std)
     else:
         return 1
-
-
-def generate_paracrystal_rdf(period, std, max_distance, resolution):
-
+        
+def generate_disordered_rdf(a, b, std, max_distance, resolution):
+    
+    
     g = np.zeros(max_distance/resolution)
     r = np.linspace(0,max_distance,max_distance/resolution)
-
-    max_peak_num = int(np.ceil(max_distance/period))
+    
+    # assumes a, b are primitive lattice vectors
+    density = 1.0/(a[0]*b[1] - b[0]*a[1])
+    
+    a_mag = np.sqrt(a[0]**2 + a[1]**2)
+    b_mag = np.sqrt(b[0]**2 + b[1]**2)
+    max_peak_num = int(np.ceil(max_distance/a_mag)+1)
 
     dist = []
+    width = std
 
     for u in range(-max_peak_num, max_peak_num):
         for v in range(-max_peak_num, max_peak_num):
-            dist.append(np.sqrt(u**2 + v**2))
+            peak_r = np.sqrt((u*a[0] + v*b[0])**2 + (u*a[1] + v*b[1])**2)
+            if peak_r > 0:
+                np.add(g,(2.0*np.pi*peak_r*width)**(-1)*np.exp(-(r-peak_r)**2/(2*(width)**2)),out=g)
 
-    dist.sort()
+    # normalize by density
+    # not sure why the factor 4/10 comes in...
+    g = g*4.0/(10.0*density)
+    
+    return r,g
+
+
+def generate_paracrystal_rdf(a, b, std, max_distance, resolution):
+    
+    
+    g = np.zeros(max_distance/resolution)
+    r = np.linspace(0,max_distance,max_distance/resolution)
+    
+    # assumes a, b are primitive lattice vectors
+    density = 1.0/(a[0]*b[1] - b[0]*a[1])
+    
+    a_mag = np.sqrt(a[0]**2 + a[1]**2)
+    b_mag = np.sqrt(b[0]**2 + b[1]**2)
+    max_peak_num = int(np.ceil(max_distance/a_mag)+1)
+
+    dist = []
     width = 0
+
+    for u in range(-max_peak_num, max_peak_num):
+        for v in range(-max_peak_num, max_peak_num):
+            peak_r = np.sqrt((u*a[0] + v*b[0])**2 + (u*a[1] + v*b[1])**2)
+            if peak_r > 0:
+                width = std * np.sqrt(peak_r**2 / ( a_mag * b_mag ) )
+                np.add(g,(2.0*np.pi*peak_r*width)**(-1)*np.exp(-(r-peak_r)**2/(2*(width)**2)),out=g)
 
     # Use this code to plot the individual pair distribution functions for each lattice spacing in dist
     # plt.figure(1)
@@ -376,33 +411,37 @@ def generate_paracrystal_rdf(period, std, max_distance, resolution):
     # plt.ylabel('$g(r_k)$')
     # plt.show()
 
-
-    for peak in dist[1::]:
-        peak_r = peak*period
-        width = np.sqrt(peak)*std
-        np.add(g,(2.0*np.pi*width)**(-1)*np.exp(-(r-peak_r)**2/(2*(width)**2))/peak_r,out=g)
-
-    # g = points in annulus / particle density
-    # don't know why we need the correction factor of 2.5, just put it in because g(r)->2.5 for large r
-    g = g*(period**2)/2.5
-
+    # normalize by density
+    # not sure why the factor 4/10 comes in...
+    g = g*4.0/(10.0*density)
+    
     return r,g
 
-def fit_paracrystal(r_data, std):
-
-    # assumes the radius is normalized such that the lattice constant is 1.0
-    # assumes r_data is periodic (constant increment: r0+dr, r0+2*dr, r0+3*dr,...)
-    r,g = generate_paracrystal_rdf(1.0, std, r_data[-1]+(r_data[1]-r_data[0]), r_data[1]-r_data[0])
-
+# assume a,b lattice vectors are equal length
+def fit_hex_paracrystal_rdf(r_data, std, r0):
+    r,g = generate_paracrystal_rdf((r0,0.0), (-0.5*r0, r0 * np.sqrt(3.0)/2.0), std, r_data[-1]+(r_data[1]-r_data[0]), r_data[1]-r_data[0])
     return g
-
-
-
+    
+def fit_square_paracrystal_rdf(r_data, std, r0):
+    r,g = generate_paracrystal_rdf((r0,0.0), (0.0, r0), std, r_data[-1]+(r_data[1]-r_data[0]), r_data[1]-r_data[0])
+    return g
+    
+def fit_hex_disordered_rdf(r_data, std, r0):
+    r,g = generate_disordered_rdf((r0,0.0), (-0.5*r0, r0 * np.sqrt(3.0)/2.0), std, r_data[-1]+(r_data[1]-r_data[0]), r_data[1]-r_data[0])
+    return g
+    
+def fit_square_disordered_rdf(r_data, std, r0):
+    r,g = generate_disordered_rdf((r0,0.0), (0.0, r0), std, r_data[-1]+(r_data[1]-r_data[0]), r_data[1]-r_data[0])
+    return g
 
 #generate_test_grid((1032,1376), period=20.0, circle_radius=10.0, radius_std=0.0, lattice_std=0.0, intensity_std=0.1)
 
 # from scipy.optimize import curve_fit
-# r,g = generate_paracrystal_rdf(1.0, 1.0*0.05, 1.0*10.0, 0.01)
+#rh,gh = generate_paracrystal_rdf(a=(1.0,0.0), b=(-0.5*1.0,1.0*np.sqrt(3.0)/2.0), std=0.05, max_distance=50.0, resolution=0.01)
+#r,g = generate_paracrystal_rdf(a=(1.0,0.0), b=(0.0,1.0), std=0.05, max_distance=50.0, resolution=0.01)
+#plt.plot(r, g)
+#plt.plot(rh,gh,'k-')
+#plt.show()
 # g = g + 0.2*np.random.normal(size=len(r))
 # popt, pcov = curve_fit(fit_paracrystal, r, g, p0=0.5)
 # print(popt)
