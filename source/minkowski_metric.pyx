@@ -70,61 +70,61 @@ cpdef minkowski(np.ndarray[DUBTYPE_t, ndim=2] vor_vertices, vor_regions, int l, 
 
         vert_count = len(vor_regions[region_index])
 
-        assert vert_count <= 20
+        if vert_count <= 20:
 
-        # copy from vor_regions list to region array
-        for region_vert_index in range(vert_count):
-            region[region_vert_index] = vor_regions[region_index][region_vert_index]
-
-        # clear the perimeter value
-        cell_perimeter = 0
-
-        # skip infinite cells and empty regions
-        if vert_count and np.all(np.not_equal(region[:vert_count],-1)):
-
+            # copy from vor_regions list to region array
             for region_vert_index in range(vert_count):
+                region[region_vert_index] = vor_regions[region_index][region_vert_index]
 
-                x1,y1 = vor_vertices[region[region_vert_index]]
-                x2,y2 = vor_vertices[region[<unsigned int>((region_vert_index+1) % vert_count)]]
-                x3,y3 = vor_vertices[region[<unsigned int>((region_vert_index+2) % vert_count)]]
+            # clear the perimeter value
+            cell_perimeter = 0
 
-                # check if any points are off the image
-                if x1 >= 0 and x2 >= 0 and y1 >= 0 and y2 >= 0 and x1 <= x_max and x2 <= x_max and y1 <= y_max and y2 <= y_max:
+            # skip infinite cells and empty regions
+            if vert_count and np.all(np.not_equal(region[:vert_count],-1)):
 
-                    out_of_bounds = False
+                for region_vert_index in range(vert_count):
+
+                    x1,y1 = vor_vertices[region[region_vert_index]]
+                    x2,y2 = vor_vertices[region[<unsigned int>((region_vert_index+1) % vert_count)]]
+                    x3,y3 = vor_vertices[region[<unsigned int>((region_vert_index+2) % vert_count)]]
+
+                    # check if any points are off the image
+                    if x1 >= 0 and x2 >= 0 and y1 >= 0 and y2 >= 0 and x1 <= x_max and x2 <= x_max and y1 <= y_max and y2 <= y_max:
+
+                        out_of_bounds = False
 
 
-                    # euclidean distance
-                    facet_lengths[region_vert_index] = np.sqrt(np.abs(x1-x2)**2 + np.abs(y1-y2)**2)
+                        # euclidean distance
+                        facet_lengths[region_vert_index] = np.sqrt(np.abs(x1-x2)**2 + np.abs(y1-y2)**2)
 
-                    # find the angle of the facets relative to the first facet
+                        # find the angle of the facets relative to the first facet
 
-                    interior_angles[region_vert_index] = angle(x1,y1,x2,y2,x3,y3)
+                        interior_angles[region_vert_index] = angle(x1,y1,x2,y2,x3,y3)
 
-                    # the angle of the facet vertex2 to vertex3
-                    # relative to the facet vertex1 to vertex2
-                    # is 180-90-interior_angle + the sum of all previous interior angles
-                    #if (region_vert_index+1) < vert_count:
-                    rotation = np.pi-interior_angles[region_vert_index]
-                    facet_normal_angles[<unsigned int>((region_vert_index+1) % vert_count)] = ((facet_normal_angles[region_vert_index]+rotation) % (2.0*np.pi))
+                        # the angle of the facet vertex2 to vertex3
+                        # relative to the facet vertex1 to vertex2
+                        # is 180-90-interior_angle + the sum of all previous interior angles
+                        #if (region_vert_index+1) < vert_count:
+                        rotation = np.pi-interior_angles[region_vert_index]
+                        facet_normal_angles[<unsigned int>((region_vert_index+1) % vert_count)] = ((facet_normal_angles[region_vert_index]+rotation) % (2.0*np.pi))
 
-                    # add to the cell perimeter
-                    cell_perimeter += facet_lengths[region_vert_index]
+                        # add to the cell perimeter
+                        cell_perimeter += facet_lengths[region_vert_index]
 
-                else:
+                    else:
 
-                    out_of_bounds = True
-                    break
+                        out_of_bounds = True
+                        break
 
-            # seems logical to make the facet angles relative to the facet with the largest length?
-            #facet_normal_angles -= facet_normal_angles[np.argmax(facetLengths)]
+                # seems logical to make the facet angles relative to the facet with the largest length?
+                #facet_normal_angles -= facet_normal_angles[np.argmax(facetLengths)]
 
-            if not out_of_bounds:
+                if not out_of_bounds:
 
-                sum = 0.0
+                    sum = 0.0
 
-                for facet_index in range(vert_count):
-                    sum += facet_lengths[facet_index]/cell_perimeter * np.exp(1.j * l * facet_normal_angles[facet_index])
+                    for facet_index in range(vert_count):
+                        sum += facet_lengths[facet_index]/cell_perimeter * np.exp(1.j * l * facet_normal_angles[facet_index])
 
-                msm.append([region_index,np.abs(sum)])
+                    msm.append([region_index,np.abs(sum)])
     return msm
