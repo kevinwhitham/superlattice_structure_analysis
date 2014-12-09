@@ -1,4 +1,6 @@
-"""This module contains routines for analyzing distributions of particles.  Currently,
+"""
+https://github.com/cfinch/Shocksolution_Examples/tree/master/PairCorrelation
+This module contains routines for analyzing distributions of particles.  Currently,
 this consists of:
     PairCorrelationFunction_2D
     PairCorrelationFunction_3D
@@ -378,7 +380,6 @@ def generate_disordered_rdf(a, b, std, max_distance, resolution):
 
 def generate_paracrystal_rdf(a, b, std, max_distance, resolution):
     
-    
     g = np.zeros(max_distance/resolution)
     r = np.linspace(0,max_distance,max_distance/resolution)
     
@@ -396,7 +397,7 @@ def generate_paracrystal_rdf(a, b, std, max_distance, resolution):
         for v in range(-max_peak_num, max_peak_num):
             peak_r = np.sqrt((u*a[0] + v*b[0])**2 + (u*a[1] + v*b[1])**2)
             if peak_r > 0:
-                width = std * np.sqrt(peak_r**2 / ( a_mag * b_mag ) )
+                width = std * np.sqrt((peak_r)**2 / ( a_mag * b_mag ) )
                 np.add(g,(2.0*np.pi*peak_r*width)**(-1)*np.exp(-(r-peak_r)**2/(2*(width)**2)),out=g)
 
     # Use this code to plot the individual pair distribution functions for each lattice spacing in dist
@@ -421,7 +422,7 @@ def generate_paracrystal_rdf(a, b, std, max_distance, resolution):
 def fit_hex_paracrystal_rdf(r_data, std, r0):
     r,g = generate_paracrystal_rdf((r0,0.0), (-0.5*r0, r0 * np.sqrt(3.0)/2.0), std, r_data[-1]+(r_data[1]-r_data[0]), r_data[1]-r_data[0])
     return g
-    
+        
 def fit_square_paracrystal_rdf(r_data, std, r0):
     r,g = generate_paracrystal_rdf((r0,0.0), (0.0, r0), std, r_data[-1]+(r_data[1]-r_data[0]), r_data[1]-r_data[0])
     return g
@@ -438,10 +439,15 @@ def fit_square_disordered_rdf(r_data, std, r0):
 
 # from scipy.optimize import curve_fit
 #rh,gh = generate_paracrystal_rdf(a=(1.0,0.0), b=(-0.5*1.0,1.0*np.sqrt(3.0)/2.0), std=0.05, max_distance=50.0, resolution=0.01)
-#r,g = generate_paracrystal_rdf(a=(1.0,0.0), b=(0.0,1.0), std=0.05, max_distance=50.0, resolution=0.01)
-#plt.plot(r, g)
-#plt.plot(rh,gh,'k-')
-#plt.show()
+# r1,g1 = generate_paracrystal_rdf(a=(1.0,0.0), b=(0.0,1.0), std=0.05, max_distance=20.0, resolution=0.01)
+# r2,g2 = generate_paracrystal_rdf(a=(1.0,0.0), b=(0.0,1.0), std=0.05, max_distance=20.0, resolution=0.01)
+# r3,g3 = generate_paracrystal_rdf(a=(1.0,0.0), b=(0.0,1.0), std=0.05, max_distance=20.0, resolution=0.01)
+# plt.plot(r1, g1, 'k-')
+# plt.plot(r2, g2, 'b-')
+# plt.plot(r3, g3, 'r-')
+# plt.gca().legend()
+# plt.show()
+
 # g = g + 0.2*np.random.normal(size=len(r))
 # popt, pcov = curve_fit(fit_paracrystal, r, g, p0=0.5)
 # print(popt)
