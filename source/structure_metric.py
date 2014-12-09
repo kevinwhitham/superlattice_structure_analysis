@@ -62,10 +62,10 @@ def make_binary_image(im, white_background, min_feature_size, adaptive):
     binary = image < thresh
     
     # debug
-    plt.figure(0)
-    plt.imshow(binary)
-    plt.gca().set_title('Global thresh')
-    plt.show()
+    #plt.figure(0)
+    #plt.imshow(binary)
+    #plt.gca().set_title('Global thresh')
+    #plt.show()
     
     # remove noise in the binary distance image
     # this gets rid of junk in the gap areas
@@ -73,10 +73,10 @@ def make_binary_image(im, white_background, min_feature_size, adaptive):
     binary_closing(binary, selem=np.ones((fill_size,fill_size)), out=binary)
     
     # debug
-    plt.figure(0)
-    plt.imshow(binary)
-    plt.gca().set_title('Global thresh, smalls removed')
-    plt.show()
+    #plt.figure(0)
+    #plt.imshow(binary)
+    #plt.gca().set_title('Global thresh, smalls removed')
+    #plt.show()
 
     # make a distance map of the inverted image
     distance = ndimage.distance_transform_edt(binary)
@@ -87,10 +87,10 @@ def make_binary_image(im, white_background, min_feature_size, adaptive):
     mask = distance < dist_thresh
     
     # debug
-    plt.figure(0)
-    plt.imshow(mask)
-    plt.gca().set_title('Distance based mask')
-    plt.show()
+    #plt.figure(0)
+    #plt.imshow(mask)
+    #plt.gca().set_title('Distance based mask')
+    #plt.show()
     
     # remove areas of background smaller than a certain size in the mask
     # this fills in small pieces of mask between particles where the voronoi
@@ -99,10 +99,10 @@ def make_binary_image(im, white_background, min_feature_size, adaptive):
     binary_closing(mask, selem=np.ones((dilation_size,dilation_size)), out=mask)
     
     # debug
-    plt.figure(0)
-    plt.imshow(mask)
-    plt.gca().set_title('Modified mask')
-    plt.show()
+#     plt.figure(0)
+#     plt.imshow(mask)
+#     plt.gca().set_title('Modified mask')
+#     plt.show()
     
     #image = image * mask
     
@@ -117,10 +117,10 @@ def make_binary_image(im, white_background, min_feature_size, adaptive):
     binary = ndimage.binary_closing(binary,iterations=1)
 
     # DEBUG
-    plt.figure(2)
-    plt.imshow(binary)
-    plt.gca().set_title('Masked Binary')
-    plt.show()
+#     plt.figure(2)
+#     plt.imshow(binary)
+#     plt.gca().set_title('Masked Binary')
+#     plt.show()
 
     return binary, mask
     
@@ -136,19 +136,19 @@ def adaptive_binary_image(im, mask, white_background, min_feature_size):
     binary = threshold_adaptive(image,block_size=local_size)
     
     # debug
-    plt.figure(0)
-    plt.imshow(binary)
-    plt.gca().set_title('Adaptive thresh')
-    plt.show()
+#     plt.figure(0)
+#     plt.imshow(binary)
+#     plt.gca().set_title('Adaptive thresh')
+#     plt.show()
     
     # 3 iterations is better for large particles with low contrast
     binary = ndimage.binary_closing(binary,iterations=1)
     
     # debug
-    plt.figure(0)
-    plt.imshow(binary)
-    plt.gca().set_title('closed adap. thresh')
-    plt.show()
+#     plt.figure(0)
+#     plt.imshow(binary)
+#     plt.gca().set_title('closed adap. thresh')
+#     plt.show()
     
     return binary
 
@@ -195,19 +195,19 @@ def morphological_threshold(im, white_background, mean_radius, min_feature_size,
         labels_th = watershed(-distance, markers, mask=matched_im_bin)
 
     # debug
-    plt.figure(9)
-    plt.imshow(matched_im)
-    plt.gca().set_title('template match')
-    plt.figure(10)
-    plt.imshow(matched_im_bin)
-    plt.gca().set_title('bin')
-    plt.figure(11)
-    plt.imshow(labels_th,cmap=plt.cm.prism)
-    plt.gca().set_title('labels')
-    plt.figure(12)
-    plt.imshow(distance)
-    plt.gca().set_title('distance')
-    plt.show()
+#     plt.figure(9)
+#     plt.imshow(matched_im)
+#     plt.gca().set_title('template match')
+#     plt.figure(10)
+#     plt.imshow(matched_im_bin)
+#     plt.gca().set_title('bin')
+#     plt.figure(11)
+#     plt.imshow(labels_th,cmap=plt.cm.prism)
+#     plt.gca().set_title('labels')
+#     plt.figure(12)
+#     plt.imshow(distance)
+#     plt.gca().set_title('distance')
+#     plt.show()
 
     return labels_th
 
@@ -293,10 +293,10 @@ def get_particle_centers(im, white_background, pixels_per_nm, morph):
     binary_closing(mask, selem=np.ones((dilation_size,dilation_size)), out=mask)
     
     # debug
-    plt.figure(0)
-    plt.imshow(mask)
-    plt.gca().set_title('closed mask adap. thresh')
-    plt.show()
+#     plt.figure(0)
+#     plt.imshow(mask)
+#     plt.gca().set_title('closed mask adap. thresh')
+#     plt.show()
     
     # morphological thresholding
     if morph:
