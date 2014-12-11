@@ -13,6 +13,7 @@ from os import path
 parser = argparse.ArgumentParser()
 parser.add_argument('symmetry', help='4 = square, 6 = hexagonal', type=int, default=4)
 parser.add_argument('model', help='crystal disorder model for fitting: \'uniform\', \'para\'', default='uniform')
+parser.add_argument('distance', help='cut off distance in number of particle diameters', type=float, default=20.0)
 parser.add_argument('input_file',help='Image file')
 args = parser.parse_args()
 
@@ -28,7 +29,7 @@ nn_dist = 2.0*np.mean(radii)*pixels_per_nm
 im = plt.imread(args.input_file)
 box_size = np.sqrt(float(im.shape[0])*float(im.shape[1]))
 
-g,r,x,y = PairCorrelationFunction_2D(pts[:,0],pts[:,1], box_size, min(box_size/2.0,10.0*nn_dist), 0.5)
+g,r,x,y = PairCorrelationFunction_2D(pts[:,0],pts[:,1], box_size, min(box_size/2.0,args.distance*nn_dist), 0.5)
 
 # change units from pixels to nm
 r /= pixels_per_nm
