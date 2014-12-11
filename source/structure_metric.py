@@ -87,10 +87,10 @@ def make_binary_image(im, white_background, min_feature_size, adaptive):
     mask = distance < dist_thresh
     
     # debug
-    #plt.figure(0)
-    #plt.imshow(mask)
-    #plt.gca().set_title('Distance based mask')
-    #plt.show()
+#     plt.figure(0)
+#     plt.imshow(mask)
+#     plt.gca().set_title('Distance based mask')
+#     plt.show()
     
     # remove areas of background smaller than a certain size in the mask
     # this fills in small pieces of mask between particles where the voronoi
@@ -124,7 +124,7 @@ def make_binary_image(im, white_background, min_feature_size, adaptive):
 
     return binary, mask
     
-def adaptive_binary_image(im, mask, white_background, min_feature_size):
+def adaptive_binary_image(im, white_background, min_feature_size):
 
     image = im.copy()
 
@@ -150,7 +150,27 @@ def adaptive_binary_image(im, mask, white_background, min_feature_size):
 #     plt.gca().set_title('closed adap. thresh')
 #     plt.show()
     
-    return binary
+    # make a distance map of the inverted image
+    distance = ndimage.distance_transform_edt((1-binary))
+
+    # do a global threshold on the distance map to select the biggest objects
+    # larger than a minimum size to prevent masking of particles in images with no empty patches
+    dist_thresh = threshold_isodata(distance)
+    new_mask = distance < dist_thresh
+    
+    # remove areas of background smaller than a certain size in the mask
+    # this fills in small pieces of mask between particles where the voronoi
+    # vertices will end up
+    dilation_size = max(int(1),int(2*min_feature_size))
+    binary_closing(new_mask, selem=np.ones((dilation_size,dilation_size)), out=new_mask)
+    
+    # debug
+#     plt.figure(0)
+#     plt.imshow(new_mask)
+#     plt.gca().set_title('adaptive mask')
+#     plt.show()
+    
+    return binary, new_mask
 
 def morphological_threshold(im, white_background, mean_radius, min_feature_size, mask):
 
@@ -175,9 +195,9 @@ def morphological_threshold(im, white_background, mean_radius, min_feature_size,
     #plt.gca().set_title('im_mod after masking')
 
     #topped_im = tophat(im_mod,disk(mean_radius),mask=mask)
-    matched_im = match_template(im_mod,template=np.pad(disk(int(mean_radius/2)),pad_width=int(mean_radius), mode='constant',constant_values=0),pad_input=True)
+    matched_im = match_template(im_mod,template=np.pad(disk(int(mean_radius/4)),pad_width=int(mean_radius), mode='constant',constant_values=0),pad_input=True)
 
-    thresh = threshold_otsu(matched_im)
+    thresh = threshold_isodata(matched_im)
     matched_im_bin = matched_im > thresh
     
     matched_im_bin *= mask
@@ -195,19 +215,19 @@ def morphological_threshold(im, white_background, mean_radius, min_feature_size,
         labels_th = watershed(-distance, markers, mask=matched_im_bin)
 
     # debug
-#     plt.figure(9)
-#     plt.imshow(matched_im)
-#     plt.gca().set_title('template match')
-#     plt.figure(10)
-#     plt.imshow(matched_im_bin)
-#     plt.gca().set_title('bin')
-#     plt.figure(11)
-#     plt.imshow(labels_th,cmap=plt.cm.prism)
-#     plt.gca().set_title('labels')
-#     plt.figure(12)
-#     plt.imshow(distance)
-#     plt.gca().set_title('distance')
-#     plt.show()
+    plt.figure(9)
+    plt.imshow(matched_im)
+    plt.gca().set_title('template match')
+    plt.figure(10)
+    plt.imshow(matched_im_bin)
+    plt.gca().set_title('bin')
+    plt.figure(11)
+    plt.imshow(labels_th,cmap=plt.cm.prism)
+    plt.gca().set_title('labels')
+    plt.figure(12)
+    plt.imshow(distance)
+    plt.gca().set_title('distance')
+    plt.show()
 
     return labels_th
 
@@ -259,7 +279,7 @@ def get_particle_centers(im, white_background, pixels_per_nm, morph):
     print('Mean radius global threshold (px): %(rad).2f' % {'rad':np.mean(radii)*pixels_per_nm})
     print('Mode radius global threshold (px): %(rad).2f' % {'rad':mode_radius})
     
-    binary = adaptive_binary_image(im, mask, white_background, feature_size)
+    binary, mask = adaptive_binary_image(im, white_background, feature_size)
 
     # create a distance map to find the particle centers
     # as the points with maximal distance to the background
@@ -285,12 +305,6 @@ def get_particle_centers(im, white_background, pixels_per_nm, morph):
     # minimum size object to look for
     mean_radius = int(np.mean(radii)*pixels_per_nm)
     print('Mean radius adaptive threshold (px): %(rad).2f' % {'rad':np.mean(radii)*pixels_per_nm})
-    
-    # remove areas of background smaller than a certain size in the mask
-    # this fills in small pieces of mask between particles where the voronoi
-    # vertices will end up
-    dilation_size = max(int(1),int(4*mean_radius))
-    binary_closing(mask, selem=np.ones((dilation_size,dilation_size)), out=mask)
     
     # debug
 #     plt.figure(0)
