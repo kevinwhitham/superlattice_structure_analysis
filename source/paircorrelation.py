@@ -369,7 +369,7 @@ def generate_disordered_rdf(a, b, std, max_distance, resolution):
         for v in range(-max_peak_num, max_peak_num):
             peak_r = np.sqrt((u*a[0] + v*b[0])**2 + (u*a[1] + v*b[1])**2)
             if peak_r > 0:
-                np.add(g,(2.0*np.pi*peak_r*width)**(-1)*np.exp(-(r-peak_r)**2/(2*(width)**2)),out=g)
+                np.add(g[1::],(2.0*np.pi*r[1::]*width)**(-1)*np.exp(-(r[1::]-peak_r)**2/(2*(width)**2)),out=g[1::])
 
     # normalize by density
     # not sure why the factor 4/10 comes in...
@@ -390,15 +390,14 @@ def generate_paracrystal_rdf(a, b, std, max_distance, resolution):
     b_mag = np.sqrt(b[0]**2 + b[1]**2)
     max_peak_num = int(np.ceil(max_distance/a_mag)+1)
 
-    dist = []
     width = 0
 
     for u in range(-max_peak_num, max_peak_num):
         for v in range(-max_peak_num, max_peak_num):
             peak_r = np.sqrt((u*a[0] + v*b[0])**2 + (u*a[1] + v*b[1])**2)
             if peak_r > 0:
-                width = std * np.sqrt((peak_r)**2 / ( a_mag * b_mag ) )
-                np.add(g,(2.0*np.pi*peak_r*width)**(-1)*np.exp(-(r-peak_r)**2/(2*(width)**2)),out=g)
+                width = std * np.sqrt(np.sqrt((peak_r)**2 / ( a_mag * b_mag ) ))
+                np.add(g[1::],(2.0*np.pi*r[1::]*width)**(-1)*np.exp(-(r[1::]-peak_r)**2/(2*(width)**2)),out=g[1::])
 
     # Use this code to plot the individual pair distribution functions for each lattice spacing in dist
     # plt.figure(1)
@@ -441,12 +440,12 @@ def fit_square_disordered_rdf(r_data, std, r0):
 #rh,gh = generate_paracrystal_rdf(a=(1.0,0.0), b=(-0.5*1.0,1.0*np.sqrt(3.0)/2.0), std=0.05, max_distance=50.0, resolution=0.01)
 # r1,g1 = generate_paracrystal_rdf(a=(1.0,0.0), b=(0.0,1.0), std=0.05, max_distance=20.0, resolution=0.01)
 # r2,g2 = generate_paracrystal_rdf(a=(1.0,0.0), b=(0.0,1.0), std=0.05, max_distance=20.0, resolution=0.01)
-# r3,g3 = generate_paracrystal_rdf(a=(1.0,0.0), b=(0.0,1.0), std=0.05, max_distance=20.0, resolution=0.01)
+#r3,g3 = generate_paracrystal_rdf(a=(1.0,0.0), b=(0.0,1.0), std=0.05, max_distance=20.0, resolution=0.01)
 # plt.plot(r1, g1, 'k-')
 # plt.plot(r2, g2, 'b-')
-# plt.plot(r3, g3, 'r-')
+#plt.plot(r3, g3, 'r-')
 # plt.gca().legend()
-# plt.show()
+#plt.show()
 
 # g = g + 0.2*np.random.normal(size=len(r))
 # popt, pcov = curve_fit(fit_paracrystal, r, g, p0=0.5)
