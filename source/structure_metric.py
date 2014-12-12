@@ -215,19 +215,19 @@ def morphological_threshold(im, white_background, mean_radius, min_feature_size,
         labels_th = watershed(-distance, markers, mask=matched_im_bin)
 
     # debug
-    plt.figure(9)
-    plt.imshow(matched_im)
-    plt.gca().set_title('template match')
-    plt.figure(10)
-    plt.imshow(matched_im_bin)
-    plt.gca().set_title('bin')
-    plt.figure(11)
-    plt.imshow(labels_th,cmap=plt.cm.prism)
-    plt.gca().set_title('labels')
-    plt.figure(12)
-    plt.imshow(distance)
-    plt.gca().set_title('distance')
-    plt.show()
+#     plt.figure(9)
+#     plt.imshow(matched_im)
+#     plt.gca().set_title('template match')
+#     plt.figure(10)
+#     plt.imshow(matched_im_bin)
+#     plt.gca().set_title('bin')
+#     plt.figure(11)
+#     plt.imshow(labels_th,cmap=plt.cm.prism)
+#     plt.gca().set_title('labels')
+#     plt.figure(12)
+#     plt.imshow(distance)
+#     plt.gca().set_title('distance')
+#     plt.show()
 
     return labels_th
 
