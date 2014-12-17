@@ -36,6 +36,7 @@ The data is output as text files, numpy array files, and images.
     If you don't have python or want a different version, either use a package installer 
     (like MacPorts on OS X) or use a distribution such as Anaconda or Canopy.
 
+
 2. clone the repository to your machine
     The easiest way to keep up with bug fixes, new development, etc. is to 
     use an SVN client like SourceTree (www.sourcetreeapp.com)
