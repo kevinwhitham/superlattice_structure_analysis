@@ -572,7 +572,7 @@ if len(args.pts_file) == 0:
     header_string = 'Particle centroids in pixel units\n'
     header_string += 'Particle radii - half of the average of the major and minor diameters of an ellipse fit to the particle area\n'
     header_string += 'total particles: '+str(len(pts))+'\n'
-    header_string += 'mean radius: %(rad_nm).2g (nm) %(rad_px).2g (pixels)\n' % {'rad_nm':np.mean(radii), 'rad_px':np.mean(radii)*pixels_per_nm}
+    header_string += 'mean radius: %(rad_nm).2g Std.Dev. %(sd_nm).2g (nm), %(rad_px).2g Std.Dev. %(sd_px).2g (pixels)\n' % {'rad_nm':np.mean(radii), 'sd_nm':np.std(radii), 'rad_px':np.mean(radii)*pixels_per_nm, 'sd_px':np.std(radii)*pixels_per_nm}
     header_string += 'X (pixel)\tY (pixel)\tradius (nm)'
     np.savetxt(output_data_path+'/'+filename+'_particles.txt',particle_data,fmt='%.4e',delimiter='\t',header=header_string)
     np.savez(output_data_path+'/'+filename+'_particles.npz',pixels_per_nm=pixels_per_nm, centroids=pts, radii=radii)
@@ -592,7 +592,7 @@ else:
 
 if not args.noplot:
     plt.figure(0)
-    plt.hist(radii,bins=len(radii)/4)
+    plt.hist(radii,range=(max(0,np.mean(radii)-3.0*np.std(radii)),np.mean(radii)+3.0*np.std(radii)),bins=len(radii)/4)
     plt.gca().set_title('Radius')
     plt.xlabel('radius (nm)')
     plt.ylabel('Count')
