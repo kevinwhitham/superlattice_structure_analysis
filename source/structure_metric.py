@@ -11,6 +11,9 @@ from scipy import stats # for stats.mode
 import collections
 import scipy.sparse as sparse
 
+# for fitting the radius distribution
+from scipy.optimize import curve_fit
+
 # for disabling annoying warnings
 import warnings
 
@@ -18,7 +21,7 @@ import warnings
 import matplotlib.pyplot as plt
 from matplotlib.collections import PatchCollection
 from matplotlib.collections import LineCollection
-from matplotlib.patches import Polygon
+from matplotlib.patches import Polygon, Circle
 from matplotlib.colors import LinearSegmentedColormap
 from mpl_toolkits.axes_grid1 import make_axes_locatable, Size
 
@@ -51,7 +54,7 @@ from minkowski_metric import minkowski
 
 def make_binary_image(im, white_background, min_feature_size, adaptive):
 
-    image = im.copy()
+    image = im.astype('int16')
 
     if white_background:
         image = np.abs(image-np.max(image))
@@ -59,28 +62,31 @@ def make_binary_image(im, white_background, min_feature_size, adaptive):
     # get rid of large background patches before local thresholding
     # do a global threshold
     thresh = threshold_isodata(image)
-    binary = image < thresh
+    binary = image > thresh
     
     # debug
-    #plt.figure(0)
-    #plt.imshow(binary)
-    #plt.gca().set_title('Global thresh')
-    #plt.show()
+#     plt.figure(0)
+#     plt.imshow(binary)
+#     plt.gca().set_title('Global thresh')
+#     plt.show()
     
-    # remove noise in the binary distance image
-    # this gets rid of junk in the gap areas
-    fill_size = 2
-    binary_closing(binary, selem=np.ones((fill_size,fill_size)), out=binary)
+    # get rid of speckle
+    # this is not good for very small particles
+    binary_closing(binary, selem=disk(min_feature_size), out=binary)
+
+    # make a map of the distance to a particle to find large background patches
+    # this is a distance map of the inverse binary image
+    distance = ndimage.distance_transform_edt(1-binary)
+    
+    # dilate the distance map to expand small voids
+    #distance = ndimage.grey_dilation(distance,size=2*min_feature_size)
     
     # debug
-    #plt.figure(0)
-    #plt.imshow(binary)
-    #plt.gca().set_title('Global thresh, smalls removed')
-    #plt.show()
-
-    # make a distance map of the inverted image
-    distance = ndimage.distance_transform_edt(binary)
-
+#     plt.figure(0)
+#     plt.imshow(distance)
+#     plt.gca().set_title('Distance map')
+#     plt.show()
+    
     # do a global threshold on the distance map to select the biggest objects
     # larger than a minimum size to prevent masking of particles in images with no empty patches
     dist_thresh = threshold_isodata(distance)
@@ -95,20 +101,16 @@ def make_binary_image(im, white_background, min_feature_size, adaptive):
     # remove areas of background smaller than a certain size in the mask
     # this fills in small pieces of mask between particles where the voronoi
     # vertices will end up
-    dilation_size = max(int(1),int(2.5*min_feature_size))
-    binary_closing(mask, selem=np.ones((dilation_size,dilation_size)), out=mask)
+    # this gets rid of junk in the gap areas
+    binary_opening(mask, selem=disk(min_feature_size), out=mask)
     
     # debug
 #     plt.figure(0)
 #     plt.imshow(mask)
 #     plt.gca().set_title('Modified mask')
 #     plt.show()
-    
-    #image = image * mask
-    
-    # adaptive was here
 
-    binary = (1-binary) * mask
+    binary = binary * mask
 
     # get rid of speckle
     binary = remove_small_objects(binary,min_size=max(min_feature_size,2))
@@ -124,15 +126,27 @@ def make_binary_image(im, white_background, min_feature_size, adaptive):
 
     return binary, mask
     
-def adaptive_binary_image(im, white_background, min_feature_size):
+def adaptive_binary_image(im, white_background, min_feature_size, std_dev, mask):
 
-    image = im.copy()
+    image = im.astype('int16')
 
     if white_background:
         image = np.abs(image-np.max(image))
+        
+    # debug
+#     plt.figure(99)
+#     implot = plt.imshow(im)
+#     plt.gca().set_title('Original Image')
+#     implot.set_cmap('gray')
+#     
+#     plt.figure(98)
+#     implot2 = plt.imshow(image)
+#     plt.gca().set_title('Copied Image')
+#     implot2.set_cmap('gray')
+#     plt.show()
     
     # the block size should be large enough to include 4 to 9 particles
-    local_size = 10*min_feature_size
+    local_size = 40*min_feature_size
     binary = threshold_adaptive(image,block_size=local_size)
     
     # debug
@@ -140,16 +154,22 @@ def adaptive_binary_image(im, white_background, min_feature_size):
 #     plt.imshow(binary)
 #     plt.gca().set_title('Adaptive thresh')
 #     plt.show()
-    
+
+    # close any small holes in the particles
     # 3 iterations is better for large particles with low contrast
-    binary = ndimage.binary_closing(binary,iterations=1)
+    #binary = ndimage.binary_closing(binary,iterations=1)
+    binary_closing(binary, selem=disk(int(max((0.414*(min_feature_size-std_dev)),2)/2.0)), out=binary)
     
+    # remove speckle from background areas in the binary image
+    binary = binary * mask #binary_erosion(mask, selem=disk(int(min_feature_size)))
+    binary_opening(binary, selem=disk(int(max((min_feature_size-3.0*std_dev),2)/2.0)), out=binary)
+   
     # debug
 #     plt.figure(0)
 #     plt.imshow(binary)
-#     plt.gca().set_title('closed adap. thresh')
+#     plt.gca().set_title('masked adaptive thresh')
 #     plt.show()
-    
+
     # make a distance map of the inverted image
     distance = ndimage.distance_transform_edt((1-binary))
 
@@ -158,11 +178,11 @@ def adaptive_binary_image(im, white_background, min_feature_size):
     dist_thresh = threshold_isodata(distance)
     new_mask = distance < dist_thresh
     
-    # remove areas of background smaller than a certain size in the mask
+    # remove areas of background in the mask smaller than a certain size
     # this fills in small pieces of mask between particles where the voronoi
     # vertices will end up
-    dilation_size = max(int(1),int(2*min_feature_size))
-    binary_closing(new_mask, selem=np.ones((dilation_size,dilation_size)), out=new_mask)
+    dilation_size = max(int(1),int(min_feature_size))
+    new_mask = binary_closing(new_mask, selem=np.ones((dilation_size,dilation_size)))
     
     # debug
 #     plt.figure(0)
@@ -180,19 +200,19 @@ def morphological_threshold(im, white_background, mean_radius, min_feature_size,
     #plt.hist(radii*pixels_per_nm,bins=len(radii)/4)
     #plt.xlabel('particle radius (pixels)')
     #plt.show()
+    
+    im_mod = im.astype('int16')
 
     if white_background:
-        im_mod = np.abs(im-np.max(im)).copy()
-    else:
-        im_mod = im.copy()
+        im_mod = np.abs(im_mod-np.max(im_mod))
 
     # set large areas of background to zero using the mask
     im_mod = im_mod * mask
 
     # debug
-    #plt.figure(8)
-    #plt.imshow(im_mod)
-    #plt.gca().set_title('im_mod after masking')
+#     plt.figure(8)
+#     plt.imshow(im_mod)
+#     plt.gca().set_title('im_mod after masking')
 
     #topped_im = tophat(im_mod,disk(mean_radius),mask=mask)
     matched_im = match_template(im_mod,template=np.pad(disk(int(mean_radius/4)),pad_width=int(mean_radius), mode='constant',constant_values=0),pad_input=True)
@@ -229,7 +249,7 @@ def morphological_threshold(im, white_background, mean_radius, min_feature_size,
 #     plt.gca().set_title('distance')
 #     plt.show()
 
-    return labels_th
+    return labels_th, matched_im_bin
 
 
 def get_particle_centers(im, white_background, pixels_per_nm, morph):
@@ -241,11 +261,11 @@ def get_particle_centers(im, white_background, pixels_per_nm, morph):
     # minimum size object to look for
     min_feature_size = int(3) #int(3*pixels_per_nm)
 
-    binary, mask = make_binary_image(im, white_background, min_feature_size, adaptive=0)
+    global_binary, mask = make_binary_image(im, white_background, min_feature_size, adaptive=0)
 
     # create a distance map to find the particle centers
     # as the points with maximal distance to the background
-    distance = ndimage.distance_transform_edt(binary)
+    distance = ndimage.distance_transform_edt(global_binary)
 
     # dilate the distance map to merge close peaks (merges multiple peaks in one particle)
     distance = ndimage.grey_dilation(distance,size=min_feature_size)
@@ -256,34 +276,30 @@ def get_particle_centers(im, white_background, pixels_per_nm, morph):
     
     with warnings.catch_warnings():
         warnings.simplefilter('ignore')
-        labels = watershed(-distance, markers, connectivity=None, offset=None, mask=binary)
+        labels = watershed(-distance, markers, connectivity=None, offset=None, mask=global_binary)
 
     # get the particle radii
-    regions = regionprops(labels)
-    radii = []
+    global_regions = regionprops(labels)
+    gobal_radii = []
     
-    for props in regions:
+    for props in global_regions:
         # define the radius as half the average of the major and minor diameters
-        radii.append(((props.minor_axis_length+props.major_axis_length)/4)/pixels_per_nm)
+        gobal_radii.append(((props.minor_axis_length+props.major_axis_length)/4)/pixels_per_nm)
 
     # minimum size object to look for
-    mean_radius = int(np.mean(radii)*pixels_per_nm)
-    mode_radius = int(stats.mode(radii,axis=None)[0].item()*pixels_per_nm)
+    global_mean_radius = np.mean(gobal_radii)*pixels_per_nm
+    global_radii_sd = np.std(gobal_radii)*pixels_per_nm
     
-    feature_size = mode_radius
+    print('Mean radius global threshold (px): %(rad).2f SD: %(sd).2g' % {'rad':global_mean_radius, 'sd':global_radii_sd})
     
-    # don't get stuck with 1.0 pixel features
-    if mode_radius <= min_feature_size:
-        feature_size = max(mean_radius, min_feature_size)
+    feature_size = int(max(global_mean_radius, min_feature_size))
+    std_dev = int(max(global_radii_sd, min_feature_size))
     
-    print('Mean radius global threshold (px): %(rad).2f' % {'rad':np.mean(radii)*pixels_per_nm})
-    print('Mode radius global threshold (px): %(rad).2f' % {'rad':mode_radius})
-    
-    binary, mask = adaptive_binary_image(im, white_background, feature_size)
+    adaptive_binary, adaptive_mask = adaptive_binary_image(im, white_background, feature_size, std_dev, mask)
 
     # create a distance map to find the particle centers
     # as the points with maximal distance to the background
-    distance = ndimage.distance_transform_edt(binary)
+    distance = ndimage.distance_transform_edt(adaptive_binary)
 
     # dilate the distance map to merge close peaks (merges multiple peaks in one particle)
     distance = ndimage.grey_dilation(distance,size=feature_size)
@@ -293,18 +309,19 @@ def get_particle_centers(im, white_background, pixels_per_nm, morph):
 
     with warnings.catch_warnings():
         warnings.simplefilter('ignore')
-        labels = watershed(-distance, markers, connectivity=None, offset=None, mask=binary)
+        labels = watershed(-distance, markers, connectivity=None, offset=None, mask=adaptive_binary)
 
-    regions = regionprops(labels)
-    radii = []
+    adaptive_regions = regionprops(labels)
+    adaptive_radii = []
     
-    for props in regions:
+    for props in adaptive_regions:
         # define the radius as half the average of the major and minor diameters
-        radii.append(((props.minor_axis_length+props.major_axis_length)/4)/pixels_per_nm)
+        adaptive_radii.append(((props.minor_axis_length+props.major_axis_length)/4)/pixels_per_nm)
 
     # minimum size object to look for
-    mean_radius = int(np.mean(radii)*pixels_per_nm)
-    print('Mean radius adaptive threshold (px): %(rad).2f' % {'rad':np.mean(radii)*pixels_per_nm})
+    adaptive_radii_sd = np.std(adaptive_radii)
+    adaptive_mean_radius = np.mean(adaptive_radii)
+    print('Mean radius adaptive threshold (px): %(rad).2f SD: %(sd).2g' % {'rad':adaptive_mean_radius*pixels_per_nm, 'sd':adaptive_radii_sd*pixels_per_nm})
     
     # debug
 #     plt.figure(0)
@@ -314,7 +331,18 @@ def get_particle_centers(im, white_background, pixels_per_nm, morph):
     
     # morphological thresholding
     if morph:
-        labels = morphological_threshold(im, white_background, mean_radius, mean_radius/2, mask)
+        print('Using morphological threshold')
+        labels, morph_binary = morphological_threshold(im, white_background, int(adaptive_mean_radius*pixels_per_nm), int(adaptive_mean_radius*pixels_per_nm)/2, adaptive_mask)
+        regions = regionprops(labels)
+        binary = morph_binary
+    elif global_radii_sd/global_mean_radius < adaptive_radii_sd/adaptive_mean_radius:
+        print('Using global threshold')
+        regions = global_regions
+        binary = global_binary
+    else:
+        print('Using adaptive threshold')
+        regions = adaptive_regions
+        binary = adaptive_binary
 
     # DEBUG
     # plt.figure(2)
@@ -329,7 +357,6 @@ def get_particle_centers(im, white_background, pixels_per_nm, morph):
     # plt.show()
 
     # get the particle centroids again, this time with better thresholding
-    regions = regionprops(labels)
     pts = []
     radii = []
 
@@ -343,9 +370,10 @@ def get_particle_centers(im, white_background, pixels_per_nm, morph):
 
     # debug
     if morph:
-        print('Mean radius morphological threshold (px): %(rad).2f' % {'rad':np.mean(radii)*pixels_per_nm})
-    
-    return np.asarray(pts,dtype=np.double), np.asarray(radii,dtype=np.double).reshape((-1,1)), mask
+        print('Mean radius morphological threshold (px): %(rad).2f SD: %(sd).2g' % {'rad':np.mean(radii)*pixels_per_nm, 'sd':np.std(radii)*pixels_per_nm})
+        
+        
+    return np.asarray(pts,dtype=np.double), np.asarray(radii,dtype=np.double).reshape((-1,1)), adaptive_mask, binary
 
 def get_image_scale(im):
 
@@ -358,6 +386,7 @@ def get_image_scale(im):
     # second element is the scale in units of pixels/nm
     scale_bars = []
     scale_bars.append([skimio.imread(input_path+'Scale_0p654px_nm.tif',as_grey=True),0.654])
+    scale_bars.append([skimio.imread(input_path+'Scale_0p532px_nm.tif',as_grey=True),0.532])
     scale_bars.append([skimio.imread(input_path+'Scale_1p425px_nm.tif',as_grey=True),1.425])
     scale_bars.append([skimio.imread(input_path+'Scale_2p88px_nm.tif',as_grey=True),2.88])
     scale_bars.append([skimio.imread(input_path+'Scale_3p44px_nm.tif',as_grey=True),3.44])
@@ -404,7 +433,7 @@ def create_custom_colormap():
 
     return LinearSegmentedColormap.from_list(name="custom", colors=value_rgb_pairs, N=16)
 
-def plot_symmetry(im,msm,bond_order,symmetry_colormap, mask, outline, map_edge_particles):
+def plot_symmetry(im, msm, vor, bond_order, symmetry_colormap, mask, no_fill, map_edge_particles):
     
     cell_patches = []
     metric_list = []
@@ -424,14 +453,14 @@ def plot_symmetry(im,msm,bond_order,symmetry_colormap, mask, outline, map_edge_p
                 plot_this_cell = 1
                 
         if plot_this_cell:
-            if outline:
+            if no_fill:
                 cell_patches.append(Polygon(verts,closed=True,facecolor='none',edgecolor='r'))
             else:
                 cell_patches.append(Polygon(verts,closed=True,edgecolor='none'))
         
             metric_list.append(metric)
             
-    if outline:
+    if no_fill:
         pc = PatchCollection(cell_patches,match_original=True,alpha=1)
     else:
         pc = PatchCollection(cell_patches,match_original=False, cmap=symmetry_colormap, edgecolor='k', alpha=1)
@@ -449,7 +478,7 @@ def plot_symmetry(im,msm,bond_order,symmetry_colormap, mask, outline, map_edge_p
     # save this plot to a file
     plt.gca().set_axis_off()
 
-    if not outline:
+    if not no_fill:
         # add the colorbar
         divider = make_axes_locatable(plt.gca())
         cax = divider.append_axes(position='right', size='5%', pad = 0.05)
@@ -466,6 +495,28 @@ def plot_symmetry(im,msm,bond_order,symmetry_colormap, mask, outline, map_edge_p
     plt.xlabel('$\Psi_'+str(bond_order)+'$')
     plt.ylabel('Count')
     plt.savefig(output_data_path+'/'+filename+'_Psi'+str(bond_order)+'_hist.png', bbox_inches='tight')
+    
+def plot_particle_outlines(im, pts, radii, pixels_per_nm):
+    
+    cell_patches = []
+    for center,radius in zip(pts,radii):
+        cell_patches.append(Circle(center,radius*pixels_per_nm,facecolor='none',edgecolor='r'))
+            
+    pc = PatchCollection(cell_patches,match_original=True,alpha=1)
+        
+    plt.gca().add_collection(pc)
+
+    # set the limits for the plot
+    # set the x axis range
+    plt.gca().set_xlim(0, im.shape[1])
+
+    # set the y-axis range and flip the y-axis
+    plt.gca().set_ylim(im.shape[0], 0)
+
+    # save this plot to a file
+    plt.gca().set_axis_off()
+    
+    plt.savefig(output_data_path+'/'+filename+'_particle_map.png',bbox_inches='tight',dpi=300)
 
 def plot_bonds(im,line_segments,bond_list):
 
@@ -507,17 +558,21 @@ def plot_nn_distance(im,line_segments,nn_distance_list):
     plt.gca().set_axis_off()
     plt.gca().set_title('Neighbor Distance')
 
+def gaussian(x, amp, mean, std):
+    return amp/(np.sqrt(2.0*np.pi)*std)*np.exp(-(x-mean)**2/(2.0*std**2))
 
 
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-b','--black', help='black background', action='store_true')
-parser.add_argument('-n','--noplot', help='do not plot data', action='store_true')
+parser.add_argument('-np','--noplot', help='do not plot data', action='store_true')
+parser.add_argument('-nd', '--nodata', help='do not output data files (images only)', action='store_true')
 parser.add_argument('-m','--morph', help='use morphological filtering', action='store_true')
-parser.add_argument('-o','--outline', help='draw Voronoi cell outlines only', action='store_true')
+parser.add_argument('-o','--outline', help='draw particle outlines on the image', action='store_true')
+parser.add_argument('-v','--voronoi', help='draw the voronoi diagram on the image', action='store_true')
 parser.add_argument('-e','--edge', help='plot the symmetry metric of particles at superlattice edge', action='store_true')
 parser.add_argument('-mc','--montecarlo', help='caclulate NN dist, Bond width, etc.', action='store_true')
-parser.add_argument('order',help='order of the symmetry function', type=int, default=4)
+parser.add_argument('order',nargs='?', help='order of the structure metric', type=int, default=0)
 parser.add_argument('img_file',help='image file to analyze')
 parser.add_argument('pts_file',nargs='?',help='XY point data file',default='')
 parser.add_argument('pix_per_nm',nargs='?',help='scale in pixels per nm',default=0.0,type=float)
@@ -556,26 +611,36 @@ if pixels_per_nm == 0:
             im[bar_corners[0][0]:bar_corners[1][0]+1,bar_corners[0][1]:bar_corners[1][1]+1] = np.max(im)
         else:
             im[bar_corners[0][0]:bar_corners[1][0]+1,bar_corners[0][1]:bar_corners[1][1]+1] = 0
+    else:
+        pixels_per_nm = 1
 
 else:
     print("User specified scale: "+str(pixels_per_nm)+" pixels per nm")
 
 if len(args.pts_file) == 0:
     # find the centroid of each particle in the image
-    pts, radii, mask = get_particle_centers(im,background,pixels_per_nm,args.morph)
+    pts, radii, mask, binary = get_particle_centers(im,background,pixels_per_nm,args.morph)
 
     assert len(pts) == len(radii)
+    
+    # fit a normal distribution function to the data at the mean +/- 3 std.
+    radii_hist, radii_bins = np.histogram(radii, bins=len(radii)/4, range=(np.mean(radii)-3.0*np.std(radii),np.mean(radii)+3.0*np.std(radii)))
+    # trapezoidal approximation
+    radii_bins += (radii_bins[1]-radii_bins[0])/2
+    popt, pcov = curve_fit(gaussian, radii_bins[0:(len(radii_bins)-1)], radii_hist, p0=(np.max(radii_hist),np.mean(radii),np.std(radii)))
+    fit_amp, fit_mean, fit_std = popt
 
     particle_data = np.hstack((pts,radii))
 
     # save the input points to a file
-    header_string = 'Particle centroids in pixel units\n'
-    header_string += 'Particle radii - half of the average of the major and minor diameters of an ellipse fit to the particle area\n'
-    header_string += 'total particles: '+str(len(pts))+'\n'
-    header_string += 'mean radius: %(rad_nm).2g Std.Dev. %(sd_nm).2g (nm), %(rad_px).2g Std.Dev. %(sd_px).2g (pixels)\n' % {'rad_nm':np.mean(radii), 'sd_nm':np.std(radii), 'rad_px':np.mean(radii)*pixels_per_nm, 'sd_px':np.std(radii)*pixels_per_nm}
-    header_string += 'X (pixel)\tY (pixel)\tradius (nm)'
-    np.savetxt(output_data_path+'/'+filename+'_particles.txt',particle_data,fmt='%.4e',delimiter='\t',header=header_string)
-    np.savez(output_data_path+'/'+filename+'_particles.npz',pixels_per_nm=pixels_per_nm, centroids=pts, radii=radii)
+    if not args.nodata:
+        header_string = 'Particle centroids in pixel units\n'
+        header_string += 'Particle radii - half of the average of the major and minor diameters of an ellipse fit to the particle area\n'
+        header_string += 'total particles: '+str(len(pts))+'\n'
+        header_string += 'mean radius: %(rad_nm).2g Std.Dev. %(sd_nm).2g (nm), %(rad_px).2g Std.Dev. %(sd_px).2g (pixels)\n' % {'rad_nm':fit_mean, 'sd_nm':fit_std, 'rad_px':fit_mean*pixels_per_nm, 'sd_px':fit_std*pixels_per_nm}
+        header_string += 'X (pixel)\tY (pixel)\tradius (nm)'
+        np.savetxt(output_data_path+'/'+filename+'_particles.txt',particle_data,fmt='%.4e',delimiter='\t',header=header_string)
+        np.savez(output_data_path+'/'+filename+'_particles.npz',pixels_per_nm=pixels_per_nm, centroids=pts, radii=radii)
 
 else:
     print("User specified points")
@@ -591,191 +656,206 @@ else:
 #pts = xy
 
 if not args.noplot:
-    plt.figure(0)
-    plt.hist(radii,range=(max(0,np.mean(radii)-3.0*np.std(radii)),np.mean(radii)+3.0*np.std(radii)),bins=len(radii)/4)
-    plt.gca().set_title('Radius')
-    plt.xlabel('radius (nm)')
+    ax = plt.figure(0)
+    plt.hist(2.0*radii,range=(2.0*(max(0,np.mean(radii)-3.0*np.std(radii))),2.0*(np.mean(radii)+3.0*np.std(radii))),bins=len(radii)/4)
+    fit_hist = gaussian(2.0*radii_bins, 2.0*fit_amp, 2.0*fit_mean, 2.0*fit_std)
+    plt.plot(2.0*radii_bins, fit_hist, 'r-', linewidth=3)
+    label_string = '%(count)i particles, Diameter: %(mean).3g (nm), $\sigma$: %(sd).2g (nm), %(percent).2g%%' % {'count':len(radii), 'mean':2.0*fit_mean, 'sd':2.0*fit_std, 'percent':100.0*fit_std/fit_mean }
+    plt.gca().set_title(label_string)
+    plt.xlabel('Diameter (nm)')
     plt.ylabel('Count')
-    plt.savefig(output_data_path+'/'+filename+'_radius_hist.png', bbox_inches='tight')
+    plt.savefig(output_data_path+'/'+filename+'_diameter_hist.png', bbox_inches='tight')
 
 vor = Voronoi(pts)
 
 bond_order = args.order
 
-if not bond_order > 0:
+if bond_order < 0:
     raise ValueError('order parameter should be > 0')
 
-# minkowski_structure_metric returns a list with region_index, metric
-msm = minkowski(vor.vertices,vor.regions,bond_order,(im.shape[1],im.shape[0]))
+if bond_order > 0:
+    # minkowski_structure_metric returns a list with region_index, metric
+    msm = minkowski(vor.vertices,vor.regions,bond_order,(im.shape[1],im.shape[0]))
 
-if np.any(np.isnan(np.asarray(msm)[:,1])):
-    raise ValueError('nan found in structure metric array')
+    if np.any(np.isnan(np.asarray(msm)[:,1])):
+        raise ValueError('nan found in structure metric array')
 
 if not args.noplot:
-    plt.figure(1)
-    plt.subplot(111)
-    implot = plt.imshow(im_original)
-    implot.set_cmap('gray')
 
-    symmetry_colormap = plt.get_cmap('RdBu_r')
-
-    plot_symmetry(im,msm,bond_order,symmetry_colormap,mask, args.outline, args.edge)
+    if args.outline:
+        plt.figure(1)
+        plt.subplot(111)
+        implot = plt.imshow(im_original)
+        implot.set_cmap('gray')
+        plot_particle_outlines(im, pts, radii, pixels_per_nm)
+    
+    if bond_order > 0:
+        plt.figure(1)
+        plt.clf()
+        plt.subplot(111)
+        implot = plt.imshow(im_original)
+        implot.set_cmap('gray')
+        symmetry_colormap = plt.get_cmap('RdBu_r')
+        plot_symmetry(im, msm, vor, bond_order, symmetry_colormap, mask, args.voronoi, args.edge)
 
 
 # save the metrics to a file
-header_string =     str(bond_order)+'-fold metric (Psi'+str(bond_order)+')\n'
-header_string +=    'References: Mickel, W., J. Chem. Phys. (2013), Escobedo, F., Soft Matter (2011)\n'
-header_string +=    'length: '+str(len(msm))+'\n'
-header_string +=    'region_index\tPsi'+str(bond_order)
-np.savetxt(output_data_path+'/'+filename+'_Psi'+str(bond_order)+'_data.txt',msm,fmt=('%u','%.3f'),delimiter='\t',header=header_string)
+if bond_order > 0:
+    if not args.nodata:
+        header_string =     str(bond_order)+'-fold metric (Psi'+str(bond_order)+')\n'
+        header_string +=    'References: Mickel, W., J. Chem. Phys. (2013), Escobedo, F., Soft Matter (2011)\n'
+        header_string +=    'length: '+str(len(msm))+'\n'
+        header_string +=    'region_index\tPsi'+str(bond_order)
+        np.savetxt(output_data_path+'/'+filename+'_Psi'+str(bond_order)+'_data.txt',msm,fmt=('%u','%.3f'),delimiter='\t',header=header_string)
 
-if args.montecarlo:
-    # Calculate the "bond strengths"
-    binary_im,_ = make_binary_image(im,background,2*pixels_per_nm,adaptive=1)
-    nn_dist_list = []
-    bond_list = []
+if bond_order > 0:
+    if args.montecarlo:
+        # Calculate the "bond strengths"
+        binary_im = binary # use the binary from get_particles above instead of: make_binary_image(im,background,2*pixels_per_nm,adaptive=1)
+        nn_dist_list = []
+        bond_list = []
 
-    # graphs for random access, Monte Carlo?
-    bond_graph = sparse.lil_matrix((len(pts),len(pts)),dtype=np.double)
-    distance_x_graph = sparse.lil_matrix((len(pts),len(pts)),dtype=np.double)
-    distance_y_graph = sparse.lil_matrix((len(pts),len(pts)),dtype=np.double)
+        # graphs for random access, Monte Carlo?
+        bond_graph = sparse.lil_matrix((len(pts),len(pts)),dtype=np.double)
+        distance_x_graph = sparse.lil_matrix((len(pts),len(pts)),dtype=np.double)
+        distance_y_graph = sparse.lil_matrix((len(pts),len(pts)),dtype=np.double)
 
-    # keep track of boundary particles
-    # naively there is a maximum of len(pts) particles that could be on the boundary
-    # since we don't want to allocate all of them or append a site more than once to a list, use a sparse matrix
-    boundary_sites = sparse.lil_matrix((len(pts),1),dtype=np.int8)
+        # keep track of boundary particles
+        # naively there is a maximum of len(pts) particles that could be on the boundary
+        # since we don't want to allocate all of them or append a site more than once to a list, use a sparse matrix
+        boundary_sites = sparse.lil_matrix((len(pts),1),dtype=np.int8)
 
-    # for saving edge data to file
-    edges = []
+        # for saving edge data to file
+        edges = []
 
-    # lists for plotting
-    bond_list_filtered = []
-    nn_dist_list_filtered= []
-    line_segments = []
-    line_segments_filtered = []
+        # lists for plotting
+        bond_list_filtered = []
+        nn_dist_list_filtered= []
+        line_segments = []
+        line_segments_filtered = []
 
-    # to draw the bonds between points
-    for ridge_vert_indices,input_pair_indices in zip(vor.ridge_vertices,vor.ridge_points):
+        # to draw the bonds between points
+        for ridge_vert_indices,input_pair_indices in zip(vor.ridge_vertices,vor.ridge_points):
     
-        if np.all(np.not_equal(ridge_vert_indices,-1)):
+            if np.all(np.not_equal(ridge_vert_indices,-1)):
     
-            # get the region enclosing this point
-            vertex1 = vor.vertices[ridge_vert_indices[0]]
-            vertex2 = vor.vertices[ridge_vert_indices[1]]
+                # get the region enclosing this point
+                vertex1 = vor.vertices[ridge_vert_indices[0]]
+                vertex2 = vor.vertices[ridge_vert_indices[1]]
         
-            x_vals = zip(vertex1,vertex2)[0]
-            y_vals = zip(vertex1,vertex2)[1]
+                x_vals = zip(vertex1,vertex2)[0]
+                y_vals = zip(vertex1,vertex2)[1]
 
-            input_pt1 = pts[input_pair_indices[0]]
-            input_pt2 = pts[input_pair_indices[1]]
+                input_pt1 = pts[input_pair_indices[0]]
+                input_pt2 = pts[input_pair_indices[1]]
         
-            # check if the voronoi region vertices are within the image bounds
-            if np.all((np.greater(x_vals,0),np.greater(y_vals,0),np.less(x_vals,im.shape[1]),np.less(y_vals,im.shape[0]))):
+                # check if the voronoi region vertices are within the image bounds
+                if np.all((np.greater(x_vals,0),np.greater(y_vals,0),np.less(x_vals,im.shape[1]),np.less(y_vals,im.shape[0]))):
 
-                # get the nearest neighbor distance
-                # the directional x and y distance to move from pt1 to pt2
-                nn_x_dist = (input_pt2[0]-input_pt1[0])/pixels_per_nm
-                nn_y_dist = (input_pt2[1]-input_pt1[1])/pixels_per_nm
+                    # get the nearest neighbor distance
+                    # the directional x and y distance to move from pt1 to pt2
+                    nn_x_dist = (input_pt2[0]-input_pt1[0])/pixels_per_nm
+                    nn_y_dist = (input_pt2[1]-input_pt1[1])/pixels_per_nm
 
-                # if the interparticle distance computes to zero
-                # it is because of the resolution of the image
-                # therefore set the distance to the uncertainty of the measurement
-                # this avoids dropping of zero-valued elements later in sparse matrix operations
-                # this should only be an issue for a few particles with the lowest magnification images
-                if nn_x_dist == 0.0:
-                    nn_x_dist = 1.0/pixels_per_nm
+                    # if the interparticle distance computes to zero
+                    # it is because of the resolution of the image
+                    # therefore set the distance to the uncertainty of the measurement
+                    # this avoids dropping of zero-valued elements later in sparse matrix operations
+                    # this should only be an issue for a few particles with the lowest magnification images
+                    if nn_x_dist == 0.0:
+                        nn_x_dist = 1.0/pixels_per_nm
 
-                if nn_y_dist == 0.0:
-                    nn_y_dist = 1.0/pixels_per_nm
+                    if nn_y_dist == 0.0:
+                        nn_y_dist = 1.0/pixels_per_nm
 
-                nn_distance = np.sqrt(nn_x_dist**2 + nn_y_dist**2)
+                    nn_distance = np.sqrt(nn_x_dist**2 + nn_y_dist**2)
 
-                # distance_..._graph[i,j] is the distance to move from point i to point j
-                distance_x_graph[input_pair_indices[0],input_pair_indices[1]] = nn_x_dist
-                distance_x_graph[input_pair_indices[1],input_pair_indices[0]] = -nn_x_dist
-                distance_y_graph[input_pair_indices[0],input_pair_indices[1]] = nn_y_dist
-                distance_y_graph[input_pair_indices[1],input_pair_indices[0]] = -nn_y_dist
-                nn_dist_list.append(nn_distance)
+                    # distance_..._graph[i,j] is the distance to move from point i to point j
+                    distance_x_graph[input_pair_indices[0],input_pair_indices[1]] = nn_x_dist
+                    distance_x_graph[input_pair_indices[1],input_pair_indices[0]] = -nn_x_dist
+                    distance_y_graph[input_pair_indices[0],input_pair_indices[1]] = nn_y_dist
+                    distance_y_graph[input_pair_indices[1],input_pair_indices[0]] = -nn_y_dist
+                    nn_dist_list.append(nn_distance)
 
-                # get the bond width
-                # this is crude...lots of assumptions here
-                # may not work well unless the im array is nearly binary because long facets
-                # will always contribute more than small ones even if there is little material
-                # would be better to use a binary image and assume all non-zero pixels are connected
-                # or fit a function to find the width of the bridge
-                facet_x_dist = np.abs(vertex2[0]-vertex1[0])+1
-                facet_y_dist = np.abs(vertex2[1]-vertex1[1])+1
-                range_len = np.max((facet_x_dist,facet_y_dist))
-                x_range = np.linspace(vertex1[0],vertex2[0],num=range_len,dtype='i4')
-                y_range = np.linspace(vertex1[1],vertex2[1],num=range_len,dtype='i4')
+                    # get the bond width
+                    # this is crude...lots of assumptions here
+                    # may not work well unless the im array is nearly binary because long facets
+                    # will always contribute more than small ones even if there is little material
+                    # would be better to use a binary image and assume all non-zero pixels are connected
+                    # or fit a function to find the width of the bridge
+                    facet_x_dist = np.abs(vertex2[0]-vertex1[0])+1
+                    facet_y_dist = np.abs(vertex2[1]-vertex1[1])+1
+                    range_len = np.max((facet_x_dist,facet_y_dist))
+                    x_range = np.linspace(vertex1[0],vertex2[0],num=range_len,dtype='i4')
+                    y_range = np.linspace(vertex1[1],vertex2[1],num=range_len,dtype='i4')
 
-                bond_width = np.sum(binary_im[y_range,x_range])/pixels_per_nm
-                bond_graph[input_pair_indices[0],input_pair_indices[1]] = bond_width
-                bond_graph[input_pair_indices[1],input_pair_indices[0]] = bond_width
-                bond_list.append(bond_width)
+                    bond_width = np.sum(binary_im[y_range,x_range])/pixels_per_nm
+                    bond_graph[input_pair_indices[0],input_pair_indices[1]] = bond_width
+                    bond_graph[input_pair_indices[1],input_pair_indices[0]] = bond_width
+                    bond_list.append(bond_width)
 
-                # make the line segments for plotting bonds, neighbor distances, whatever
-                line_segments.append(np.asarray([pts[input_pair_indices[0]],pts[input_pair_indices[1]]]))
+                    # make the line segments for plotting bonds, neighbor distances, whatever
+                    line_segments.append(np.asarray([pts[input_pair_indices[0]],pts[input_pair_indices[1]]]))
 
-                edges.append([input_pair_indices[0],input_pair_indices[1],nn_distance,bond_width])
+                    edges.append([input_pair_indices[0],input_pair_indices[1],nn_distance,bond_width])
 
-                if not bond_width == 0:
-                    bond_list_filtered.append(bond_width)
-                    nn_dist_list_filtered.append(nn_distance)
-                    line_segments_filtered.append(np.asarray([pts[input_pair_indices[0]],pts[input_pair_indices[1]]]))
+                    if not bond_width == 0:
+                        bond_list_filtered.append(bond_width)
+                        nn_dist_list_filtered.append(nn_distance)
+                        line_segments_filtered.append(np.asarray([pts[input_pair_indices[0]],pts[input_pair_indices[1]]]))
     
-            else:
-                # at least one ridge vertex is off the image
-                # these two input points are boundary sites
-                boundary_sites[input_pair_indices,0] = np.int(1)
+                else:
+                    # at least one ridge vertex is off the image
+                    # these two input points are boundary sites
+                    boundary_sites[input_pair_indices,0] = np.int(1)
 
-    if not args.noplot:
+        if not args.noplot:
 
-        plt.figure(3)
-        plot_bonds(im,line_segments_filtered,bond_list_filtered)
-        plt.savefig(output_data_path+'/'+filename+'_bond_map.pdf',bbox_inches='tight')
+            plt.figure(3)
+            plot_bonds(im,line_segments_filtered,bond_list_filtered)
+            plt.savefig(output_data_path+'/'+filename+'_bond_map.pdf',bbox_inches='tight')
 
-        plt.figure(4)
-        plot_bonds(binary_im,line_segments,bond_list)
-        plt.savefig(output_data_path+'/'+filename+'_bond_map_binary.pdf',bbox_inches='tight')
+            plt.figure(4)
+            plot_bonds(binary_im,line_segments,bond_list)
+            plt.savefig(output_data_path+'/'+filename+'_bond_map_binary.pdf',bbox_inches='tight')
 
-        # make a map of the nn distances
-        plt.figure(5)
-        plot_nn_distance(im_original,line_segments_filtered,nn_dist_list_filtered)
-        plt.savefig(output_data_path+'/'+filename+'_nn_dist_map.pdf',bbox_inches='tight')
+            # make a map of the nn distances
+            plt.figure(5)
+            plot_nn_distance(im_original,line_segments_filtered,nn_dist_list_filtered)
+            plt.savefig(output_data_path+'/'+filename+'_nn_dist_map.pdf',bbox_inches='tight')
 
-        # plot a histogram of the "bond strengths"
-        plt.figure(6)
-        plt.hist(bond_list_filtered,bins=len(bond_list_filtered)/4)
-        plt.ylabel('Count')
-        plt.xlabel('Width (nm)')
-        plt.gca().set_title('Bond Widths (filtered)')
-        plt.savefig(output_data_path+'/'+filename+'_bond_hist.png', bbox_inches='tight')
+            # plot a histogram of the "bond strengths"
+            plt.figure(6)
+            plt.hist(bond_list_filtered,bins=len(bond_list_filtered)/4)
+            plt.ylabel('Count')
+            plt.xlabel('Width (nm)')
+            plt.gca().set_title('Bond Widths (filtered)')
+            plt.savefig(output_data_path+'/'+filename+'_bond_hist.png', bbox_inches='tight')
 
-        # plot a histogram of the nearest neighbor distances
-        plt.figure(7)
-        plt.hist(nn_dist_list,bins=len(nn_dist_list)/4)
-        plt.ylabel('Count')
-        plt.xlabel('Neighbor Distance (nm)')
-        plt.savefig(output_data_path+'/'+filename+'_nn_dist_hist.png', bbox_inches='tight')
+            # plot a histogram of the nearest neighbor distances
+            plt.figure(7)
+            plt.hist(nn_dist_list,bins=len(nn_dist_list)/4)
+            plt.ylabel('Count')
+            plt.xlabel('Neighbor Distance (nm)')
+            plt.savefig(output_data_path+'/'+filename+'_nn_dist_hist.png', bbox_inches='tight')
 
-    # save edge data to file
-    header_string =     'pt1 and pt2 are the indices of the points between which the distance and bond width are given\n'
-    header_string +=    'total edges: '+str(len(edges))+'\n'
-    header_string +=    'pt1\tpt2\tdistance (nm)\tbond width (nm)'
-    np.savetxt(output_data_path+'/'+filename+'_edges.txt',np.asarray(edges),fmt=('%u','%u','%.3f','%.3f'),delimiter='\t',header=header_string)
+        # save edge data to file
+        header_string =     'pt1 and pt2 are the indices of the points between which the distance and bond width are given\n'
+        header_string +=    'total edges: '+str(len(edges))+'\n'
+        header_string +=    'pt1\tpt2\tdistance (nm)\tbond width (nm)'
+        np.savetxt(output_data_path+'/'+filename+'_edges.txt',np.asarray(edges),fmt=('%u','%u','%.3f','%.3f'),delimiter='\t',header=header_string)
 
-    # show it all
-    #plt.show()
+        # show it all
+        #plt.show()
 
-    # save the graphs to files to use in Monte Carlo
-    bond_graph_csr = bond_graph.tocsr()
-    distance_x_graph_csr = distance_x_graph.tocsr()
-    distance_y_graph_csr = distance_y_graph.tocsr()
-    boundary_sites_csc = boundary_sites.tocsc()
-    radii = np.asarray(radii.reshape((-1,)),dtype=np.double)
-    np.savez(output_data_path+'/'+filename+'_bond_graph',bond_graph=bond_graph_csr)
-    np.savez(output_data_path+'/'+filename+'_x_distance_graph',data=distance_x_graph_csr.data,indices=distance_x_graph_csr.indices,indptr=distance_x_graph_csr.indptr)
-    np.savez(output_data_path+'/'+filename+'_y_distance_graph',data=distance_y_graph_csr.data,indices=distance_y_graph_csr.indices,indptr=distance_y_graph_csr.indptr)
-    np.savez(output_data_path+'/'+filename+'_boundary_graph',data=boundary_sites_csc.data,indices=boundary_sites_csc.indices,indptr=boundary_sites_csc.indptr)
-    np.savez(output_data_path+'/'+filename+'_site_data',radii=radii,pts=pts,pixels_per_nm=np.asarray(pixels_per_nm),box_x_size=np.asarray(im.shape[1]/pixels_per_nm))
+        # save the graphs to files to use in Monte Carlo
+        bond_graph_csr = bond_graph.tocsr()
+        distance_x_graph_csr = distance_x_graph.tocsr()
+        distance_y_graph_csr = distance_y_graph.tocsr()
+        boundary_sites_csc = boundary_sites.tocsc()
+        radii = np.asarray(radii.reshape((-1,)),dtype=np.double)
+        np.savez(output_data_path+'/'+filename+'_bond_graph',bond_graph=bond_graph_csr)
+        np.savez(output_data_path+'/'+filename+'_x_distance_graph',data=distance_x_graph_csr.data,indices=distance_x_graph_csr.indices,indptr=distance_x_graph_csr.indptr)
+        np.savez(output_data_path+'/'+filename+'_y_distance_graph',data=distance_y_graph_csr.data,indices=distance_y_graph_csr.indices,indptr=distance_y_graph_csr.indptr)
+        np.savez(output_data_path+'/'+filename+'_boundary_graph',data=boundary_sites_csc.data,indices=boundary_sites_csc.indices,indptr=boundary_sites_csc.indptr)
+        np.savez(output_data_path+'/'+filename+'_site_data',radii=radii,pts=pts,pixels_per_nm=np.asarray(pixels_per_nm),box_x_size=np.asarray(im.shape[1]/pixels_per_nm))
