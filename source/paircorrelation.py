@@ -303,6 +303,14 @@ def vector_corr(w1, w2):
 
     return f/g
 
+
+"""
+functions for generating pair distribution functions
+for disordered 2D lattices
+Kevin Whitham
+20150715
+"""
+
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.collections import PatchCollection
@@ -369,11 +377,11 @@ def generate_disordered_rdf(a, b, std, max_distance, resolution):
         for v in range(-max_peak_num, max_peak_num):
             peak_r = np.sqrt((u*a[0] + v*b[0])**2 + (u*a[1] + v*b[1])**2)
             if peak_r > 0:
-                np.add(g[1::],(2.0*np.pi*r[1::]*width)**(-1)*np.exp(-(r[1::]-peak_r)**2/(2*(width)**2)),out=g[1::])
+                np.add(g[1::],(np.sqrt(2.0*np.pi)*width)**(-1)*np.exp(-(r[1::]-peak_r)**2/(2*(width)**2)),out=g[1::])
 
-    # normalize by density
-    # not sure why the factor 4/10 comes in...
-    g = g*4.0/(10.0*density)
+    # normalize by density and circumference
+    circumference = 2.0*np.pi*r
+    g[1::] = g[1::]/(circumference[1::]*density)
     
     return r,g
 
@@ -384,6 +392,8 @@ def generate_paracrystal_rdf(a, b, std, max_distance, resolution):
     r = np.linspace(0,max_distance,max_distance/resolution)
     
     # assumes a, b are primitive lattice vectors
+    # find the density of lattice points from the unit cell area
+    # by taking the cross-product a x b
     density = 1.0/(a[0]*b[1] - b[0]*a[1])
     
     a_mag = np.sqrt(a[0]**2 + a[1]**2)
@@ -397,7 +407,7 @@ def generate_paracrystal_rdf(a, b, std, max_distance, resolution):
             peak_r = np.sqrt((u*a[0] + v*b[0])**2 + (u*a[1] + v*b[1])**2)
             if peak_r > 0:
                 width = std * np.sqrt(np.sqrt((peak_r)**2 / ( a_mag * b_mag ) ))
-                np.add(g[1::],(2.0*np.pi*r[1::]*width)**(-1)*np.exp(-(r[1::]-peak_r)**2/(2*(width)**2)),out=g[1::])
+                np.add(g[1::],(np.sqrt(2.0*np.pi)*width)**(-1)*np.exp(-(r[1::]-peak_r)**2.0/(2.0*(width)**2)),out=g[1::])
 
     # Use this code to plot the individual pair distribution functions for each lattice spacing in dist
     # plt.figure(1)
@@ -411,9 +421,9 @@ def generate_paracrystal_rdf(a, b, std, max_distance, resolution):
     # plt.ylabel('$g(r_k)$')
     # plt.show()
 
-    # normalize by density
-    # not sure why the factor 4/10 comes in...
-    g = g*4.0/(10.0*density)
+    # normalize by density and circumference
+    circumference = 2.0*np.pi*r
+    g[1::] = g[1::]/(circumference[1::]*density)
     
     return r,g
 
