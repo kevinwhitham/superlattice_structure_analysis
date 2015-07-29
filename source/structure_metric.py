@@ -380,7 +380,7 @@ def get_image_scale(im):
     scale = 0.0
     bar_width = 0
 
-    input_path = '../test_data/input/'
+    input_path = path.normpath('../test_data/input/')
 
     # images of scale bars to match with the input image
     # second element is the scale in units of pixels/nm
@@ -582,8 +582,6 @@ im = skimio.imread(args.img_file,as_grey=True)
 im_original = np.empty_like(im)
 np.copyto(im_original,im)
 
-# import the points to analyze
-#input_data_path = '../test_data/input/'
 output_data_path = path.dirname(args.img_file)
 filename = str.split(path.basename(args.img_file),'.')[0]
 
