@@ -30,13 +30,13 @@ from scipy.spatial import Voronoi
 
 # for finding particle centers, diameters, etc.
 from skimage.measure import regionprops
-from skimage.filter import threshold_otsu,threshold_adaptive, threshold_isodata
+from skimage.filters import threshold_otsu,threshold_adaptive, threshold_isodata
 from skimage.morphology import watershed, remove_small_objects, binary_erosion, binary_dilation, binary_closing, binary_opening
 from skimage.feature import peak_local_max
 from scipy import ndimage
 from skimage.draw import circle
 from skimage.morphology import disk
-from skimage.filter.rank import tophat
+from skimage.filters.rank import tophat
 
 # for command line interface
 import argparse
@@ -380,21 +380,21 @@ def get_image_scale(im):
     scale = 0.0
     bar_width = 0
 
-    input_path = path.normpath('../test_data/input/')
+    input_path = path.normpath('../test_data/input')
 
     # images of scale bars to match with the input image
     # second element is the scale in units of pixels/nm
     scale_bars = []
-    scale_bars.append([skimio.imread(input_path+'Scale_0p654px_nm.tif',as_grey=True),0.654])
-    scale_bars.append([skimio.imread(input_path+'Scale_0p532px_nm.tif',as_grey=True),0.532])
-    scale_bars.append([skimio.imread(input_path+'Scale_1p425px_nm.tif',as_grey=True),1.425])
-    scale_bars.append([skimio.imread(input_path+'Scale_2p88px_nm.tif',as_grey=True),2.88])
-    scale_bars.append([skimio.imread(input_path+'Scale_3p44px_nm.tif',as_grey=True),3.44])
-    scale_bars.append([skimio.imread(input_path+'Scale_5p14px_nm.tif',as_grey=True),5.14])
-    scale_bars.append([skimio.imread(input_path+'Scale_2px_nm.tif',as_grey=True),2])
-    scale_bars.append([skimio.imread(input_path+'Scale_7p258px_nm.tif',as_grey=True),7.258])
-    scale_bars.append([skimio.imread(input_path+'Scale_9p4px_nm.tif',as_grey=True),9.4])
-    scale_bars.append([skimio.imread(input_path+'Scale_4p51px_nm.tif',as_grey=True),4.51])
+    scale_bars.append([skimio.imread(input_path+'/'+'Scale_0p654px_nm.tif',as_grey=True),0.654])
+    scale_bars.append([skimio.imread(input_path+'/'+'Scale_0p532px_nm.tif',as_grey=True),0.532])
+    scale_bars.append([skimio.imread(input_path+'/'+'Scale_1p425px_nm.tif',as_grey=True),1.425])
+    scale_bars.append([skimio.imread(input_path+'/'+'Scale_2p88px_nm.tif',as_grey=True),2.88])
+    scale_bars.append([skimio.imread(input_path+'/'+'Scale_3p44px_nm.tif',as_grey=True),3.44])
+    scale_bars.append([skimio.imread(input_path+'/'+'Scale_5p14px_nm.tif',as_grey=True),5.14])
+    scale_bars.append([skimio.imread(input_path+'/'+'Scale_2px_nm.tif',as_grey=True),2])
+    scale_bars.append([skimio.imread(input_path+'/'+'Scale_7p258px_nm.tif',as_grey=True),7.258])
+    scale_bars.append([skimio.imread(input_path+'/'+'Scale_9p4px_nm.tif',as_grey=True),9.4])
+    scale_bars.append([skimio.imread(input_path+'/'+'Scale_4p51px_nm.tif',as_grey=True),4.51])
 
     match_score = []
 
@@ -578,7 +578,7 @@ parser.add_argument('pts_file',nargs='?',help='XY point data file',default='')
 parser.add_argument('pix_per_nm',nargs='?',help='scale in pixels per nm',default=0.0,type=float)
 args = parser.parse_args()
 
-im = skimio.imread(args.img_file,as_grey=True)
+im = skimio.imread(args.img_file,as_grey=True,plugin='matplotlib')
 im_original = np.empty_like(im)
 np.copyto(im_original,im)
 
