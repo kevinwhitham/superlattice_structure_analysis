@@ -16,7 +16,7 @@ The data is output as text files, numpy array files, and images.
 
 ### How do I get set up? ###
 
-1. Install dependencies:
+ 1. Install dependencies:
     python
     python packages:
         numpy
@@ -37,24 +37,32 @@ The data is output as text files, numpy array files, and images.
     If you don't have python or want a different version, either use a package installer 
     (like MacPorts or homebrew on OS X) or use a distribution such as Anaconda or Canopy.
 
-2. clone the repository to your machine
+
+ 2. clone the repository to your machine
     The easiest way to keep up with bug fixes, new development, etc. is to 
     use an SVN client like SourceTree (www.sourcetreeapp.com)
     
     Otherwise you can just download the latest version as a zip file
     
-3. Running
+
+### How do I run it? ###
 
 Navigate to the /source directory in your console.
 
 To run the structure, size, and connection analysis type:
+```
+#!
 
-python structure_metric.py [options] N <path to image file> [parameters]
+python structure_metric.py [options] <N> <path to image file> [parameters]
+```
 
 N is the desired order of the structure metric (e.g. 4, 6, etc.)
 filepath is the complete path to the image file (tif, png, etc.)
 
 prefix options are:
+```
+#!
+
 -h                  help
 -b, --black         specify the image has a dark background with lighter colored particles
 -np, --noplot       do not create any image files, only text and numpy array files (saves time)
@@ -64,8 +72,11 @@ prefix options are:
 -o, --outline       plot the Voronoi cells as outlines without the structure metric color
 -mc, --montecarlo   compute and output data that could be used for MC (NN distance, bonds, etc.)
 -d, --debug         turns on debugging output, you can see how well it is thresholding your image
+```
 
 post-fix optional parameters are:
+```
+#!
 pts_file         the path to a text file with two columns (X and Y) specifying the centroid location of each particle in pixel units.
                     you may use this option to bypass the algorithm that attempts to find the particles. Useful when the image quality is
                     poor, such as when there is low contrast between particles and background. You can generate this file for example 
@@ -75,10 +86,15 @@ pix_per_nm  floating point number specifying the image scaling in units of pixel
                      of the scale bars contained in the /input directory. To use this option you must also specify the pts_file
                      parameter, use a blank path '' if you are not using a file of points
 
+```
+
 
 To run the radial distribution function analysis (after running the structure analysis to get the particle locations):
 
-python fit_rdf.py N model distance <path to image file>
+```
+#!
+python fit_rdf.py <N> <model> <distance> <path to image file>
+```
 
 N is the order of the symmetry you're looking for (4 or 6 for square or hexagonal)
 model can be either 'para' or 'uniform' to fit using a paracrystalline disorder model, or a uniform (uncorrelated) model
