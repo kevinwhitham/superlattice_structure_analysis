@@ -1,6 +1,6 @@
 # Radial distribution function
-# Model: para Equation: $\sum_i\/\frac{L}{2\pi r_i^2 \sigma} exp\left(\frac{-(r-r_i)^2}{2 (\sigma r_i/L)^2}\right)$
-# sigma = 3.93%, L = 6.63 nm
+# Model: uniform Equation: $\sum_i\/\frac{1}{2\pi r_i \sigma} exp\left(\frac{-(r-r_i)^2}{2 \sigma^2}\right)$
+# sigma = 5.45%, L = 6.64 nm
 # r (nm)	g(r)
 8.680555555555555247e-02 0.000000000000000000e+00
 2.604166666666666852e-01 0.000000000000000000e+00
