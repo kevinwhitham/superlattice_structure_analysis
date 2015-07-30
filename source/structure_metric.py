@@ -51,10 +51,13 @@ from minkowski_metric import minkowski
 #import pyximport; pyximport.install()
 #import minkowski_metric
 
+# globals
+DEBUG_OUTPUT = False
+
 
 def make_binary_image(im, white_background, min_feature_size, adaptive):
 
-    image = im.astype('int16')
+    image = im.astype('float32')
 
     if white_background:
         image = np.abs(image-np.max(image))
@@ -63,12 +66,6 @@ def make_binary_image(im, white_background, min_feature_size, adaptive):
     # do a global threshold
     thresh = threshold_isodata(image)
     binary = image > thresh
-    
-    # debug
-#     plt.figure(0)
-#     plt.imshow(binary)
-#     plt.gca().set_title('Global thresh')
-#     plt.show()
     
     # get rid of speckle
     # this is not good for very small particles
@@ -81,22 +78,10 @@ def make_binary_image(im, white_background, min_feature_size, adaptive):
     # dilate the distance map to expand small voids
     #distance = ndimage.grey_dilation(distance,size=2*min_feature_size)
     
-    # debug
-#     plt.figure(0)
-#     plt.imshow(distance)
-#     plt.gca().set_title('Distance map')
-#     plt.show()
-    
     # do a global threshold on the distance map to select the biggest objects
     # larger than a minimum size to prevent masking of particles in images with no empty patches
     dist_thresh = threshold_isodata(distance)
-    mask = distance < dist_thresh
-    
-    # debug
-#     plt.figure(0)
-#     plt.imshow(mask)
-#     plt.gca().set_title('Distance based mask')
-#     plt.show()
+    mask = distance < dist_thresh  
     
     # remove areas of background smaller than a certain size in the mask
     # this fills in small pieces of mask between particles where the voronoi
@@ -104,12 +89,6 @@ def make_binary_image(im, white_background, min_feature_size, adaptive):
     # this gets rid of junk in the gap areas
     binary_opening(mask, selem=disk(min_feature_size), out=mask)
     
-    # debug
-#     plt.figure(0)
-#     plt.imshow(mask)
-#     plt.gca().set_title('Modified mask')
-#     plt.show()
-
     binary = binary * mask
 
     # get rid of speckle
@@ -118,42 +97,33 @@ def make_binary_image(im, white_background, min_feature_size, adaptive):
     # 3 iterations is better for large particles with low contrast
     binary = ndimage.binary_closing(binary,iterations=1)
 
-    # DEBUG
-#     plt.figure(2)
-#     plt.imshow(binary)
-#     plt.gca().set_title('Masked Binary')
-#     plt.show()
+    if DEBUG_OUTPUT:
+        fig, ax = plt.subplots(2, 2)
+        ax[0,0].imshow(binary)
+        ax[0,0].set_title('Global threshold')
+        
+        ax[0,1].imshow(distance)
+        ax[0,1].set_title('Distance map')
+        
+        ax[1,0].imshow(mask)
+        ax[1,0].set_title('Modified Distance Based Mask')
+        
+        ax[1,1].imshow(binary)
+        ax[1,1].set_title('Masked Binarized Image')
+        plt.show()
 
     return binary, mask
     
 def adaptive_binary_image(im, white_background, min_feature_size, std_dev, mask):
 
-    image = im.astype('int16')
+    image = im.astype('float32')
 
     if white_background:
         image = np.abs(image-np.max(image))
-        
-    # debug
-#     plt.figure(99)
-#     implot = plt.imshow(im)
-#     plt.gca().set_title('Original Image')
-#     implot.set_cmap('gray')
-#     
-#     plt.figure(98)
-#     implot2 = plt.imshow(image)
-#     plt.gca().set_title('Copied Image')
-#     implot2.set_cmap('gray')
-#     plt.show()
     
     # the block size should be large enough to include 4 to 9 particles
     local_size = 40*min_feature_size
     binary = threshold_adaptive(image,block_size=local_size)
-    
-    # debug
-#     plt.figure(0)
-#     plt.imshow(binary)
-#     plt.gca().set_title('Adaptive thresh')
-#     plt.show()
 
     # close any small holes in the particles
     # 3 iterations is better for large particles with low contrast
@@ -163,12 +133,6 @@ def adaptive_binary_image(im, white_background, min_feature_size, std_dev, mask)
     # remove speckle from background areas in the binary image
     binary = binary * mask #binary_erosion(mask, selem=disk(int(min_feature_size)))
     binary_opening(binary, selem=disk(int(max((min_feature_size-3.0*std_dev),2)/2.0)), out=binary)
-   
-    # debug
-#     plt.figure(0)
-#     plt.imshow(binary)
-#     plt.gca().set_title('masked adaptive thresh')
-#     plt.show()
 
     # make a distance map of the inverted image
     distance = ndimage.distance_transform_edt((1-binary))
@@ -184,35 +148,32 @@ def adaptive_binary_image(im, white_background, min_feature_size, std_dev, mask)
     dilation_size = max(int(1),int(min_feature_size))
     new_mask = binary_closing(new_mask, selem=np.ones((dilation_size,dilation_size)))
     
-    # debug
-#     plt.figure(0)
-#     plt.imshow(new_mask)
-#     plt.gca().set_title('adaptive mask')
-#     plt.show()
+    if DEBUG_OUTPUT:
+        fig, ax = plt.subplots(1, 3)
+        ax[0].imshow(binary)
+        ax[0].set_title('Adaptive thresh')
+        
+        ax[1].imshow(binary)
+        ax[1].set_title('masked adaptive thresh')
+        
+        ax[2].imshow(new_mask)
+        ax[2].set_title('adaptive mask')
+        plt.show()
     
     return binary, new_mask
 
 def morphological_threshold(im, white_background, mean_radius, min_feature_size, mask):
 
-    # debug
-    #print('Mean radius (px): '+str(mean_radius))
-    #plt.figure(6)
-    #plt.hist(radii*pixels_per_nm,bins=len(radii)/4)
-    #plt.xlabel('particle radius (pixels)')
-    #plt.show()
+    if DEBUG_OUTPUT:
+        print('Morphological threshold mean radius (px): '+str(mean_radius))
     
-    im_mod = im.astype('int16')
+    im_mod = im.astype('float32')
 
     if white_background:
         im_mod = np.abs(im_mod-np.max(im_mod))
 
     # set large areas of background to zero using the mask
     im_mod = im_mod * mask
-
-    # debug
-#     plt.figure(8)
-#     plt.imshow(im_mod)
-#     plt.gca().set_title('im_mod after masking')
 
     #topped_im = tophat(im_mod,disk(mean_radius),mask=mask)
     matched_im = match_template(im_mod,template=np.pad(disk(int(mean_radius/4)),pad_width=int(mean_radius), mode='constant',constant_values=0),pad_input=True)
@@ -225,7 +186,7 @@ def morphological_threshold(im, white_background, mean_radius, min_feature_size,
     distance = ndimage.distance_transform_edt(matched_im_bin)
 
     # dilate the distance map to merge close peaks (merges multiple peaks in one particle)
-    distance = ndimage.grey_dilation(distance,size=2*min_feature_size)
+    distance = ndimage.grey_dilation(distance,size=min_feature_size)
 
     local_maxi = peak_local_max(distance,indices=False,min_distance=min_feature_size)
     markers = ndimage.label(local_maxi)[0]
@@ -234,20 +195,20 @@ def morphological_threshold(im, white_background, mean_radius, min_feature_size,
         warnings.simplefilter('ignore')
         labels_th = watershed(-distance, markers, mask=matched_im_bin)
 
-    # debug
-#     plt.figure(9)
-#     plt.imshow(matched_im)
-#     plt.gca().set_title('template match')
-#     plt.figure(10)
-#     plt.imshow(matched_im_bin)
-#     plt.gca().set_title('bin')
-#     plt.figure(11)
-#     plt.imshow(labels_th,cmap=plt.cm.prism)
-#     plt.gca().set_title('labels')
-#     plt.figure(12)
-#     plt.imshow(distance)
-#     plt.gca().set_title('distance')
-#     plt.show()
+    if DEBUG_OUTPUT:
+        f, ax = plt.subplots(2, 2)
+        ax[0,0].imshow(matched_im)
+        ax[0,0].set_title('template match')
+        
+        ax[0,1].imshow(matched_im_bin)
+        ax[0,1].set_title('bin')
+        
+        ax[1,0].imshow(distance)
+        ax[1,0].set_title('distance')
+        
+        ax[1,1].imshow(labels_th,cmap=plt.cm.prism)
+        ax[1,1].set_title('labels')
+        plt.show()
 
     return labels_th, matched_im_bin
 
@@ -323,11 +284,6 @@ def get_particle_centers(im, white_background, pixels_per_nm, morph):
     adaptive_mean_radius = np.mean(adaptive_radii)
     print('Mean radius adaptive threshold (px): %(rad).2f SD: %(sd).2g' % {'rad':adaptive_mean_radius*pixels_per_nm, 'sd':adaptive_radii_sd*pixels_per_nm})
     
-    # debug
-#     plt.figure(0)
-#     plt.imshow(mask)
-#     plt.gca().set_title('closed mask adap. thresh')
-#     plt.show()
     
     # morphological thresholding
     if morph:
@@ -344,17 +300,20 @@ def get_particle_centers(im, white_background, pixels_per_nm, morph):
         regions = adaptive_regions
         binary = adaptive_binary
 
-    # DEBUG
-    # plt.figure(2)
-    # plt.imshow(binary)
-    # plt.figure(3)
-    # plt.imshow(distance)
-    # plt.figure(4)
-    # plt.imshow(markers,cmap=plt.cm.spectral,alpha=0.5)
-    # plt.figure(5)
-    # plt.imshow(labels,cmap=plt.cm.prism)
-    # plt.gca().set_title('distance_mapped_labels')
-    # plt.show()
+#     if DEBUG_OUTPUT:
+#         fig, ax = plt.subplots(2, 2)
+#         ax[0,0].imshow(binary)
+#         ax[0,0].set_title('Binarized Image')
+#         
+#         ax[0,1].imshow(distance)
+#         ax[0,1].set_title('Distance Map')
+# 
+#         ax[1,0].imshow(markers,cmap=plt.cm.spectral,alpha=0.5)
+#         ax[1,0].set_title('Region Markers')
+#         
+#         ax[1,1].imshow(labels,cmap=plt.cm.prism)
+#         ax[1,1].set_title('Labels')
+#         plt.show()
 
     # get the particle centroids again, this time with better thresholding
     pts = []
@@ -368,7 +327,6 @@ def get_particle_centers(im, white_background, pixels_per_nm, morph):
         # define the radius as half the average of the major and minor diameters
         radii.append(((props.minor_axis_length+props.major_axis_length)/4)/pixels_per_nm)
 
-    # debug
     if morph:
         print('Mean radius morphological threshold (px): %(rad).2f SD: %(sd).2g' % {'rad':np.mean(radii)*pixels_per_nm, 'sd':np.std(radii)*pixels_per_nm})
         
@@ -385,16 +343,16 @@ def get_image_scale(im):
     # images of scale bars to match with the input image
     # second element is the scale in units of pixels/nm
     scale_bars = []
-    scale_bars.append([skimio.imread(input_path+'/'+'Scale_0p654px_nm.tif',as_grey=True),0.654])
-    scale_bars.append([skimio.imread(input_path+'/'+'Scale_0p532px_nm.tif',as_grey=True),0.532])
-    scale_bars.append([skimio.imread(input_path+'/'+'Scale_1p425px_nm.tif',as_grey=True),1.425])
-    scale_bars.append([skimio.imread(input_path+'/'+'Scale_2p88px_nm.tif',as_grey=True),2.88])
-    scale_bars.append([skimio.imread(input_path+'/'+'Scale_3p44px_nm.tif',as_grey=True),3.44])
-    scale_bars.append([skimio.imread(input_path+'/'+'Scale_5p14px_nm.tif',as_grey=True),5.14])
-    scale_bars.append([skimio.imread(input_path+'/'+'Scale_2px_nm.tif',as_grey=True),2])
-    scale_bars.append([skimio.imread(input_path+'/'+'Scale_7p258px_nm.tif',as_grey=True),7.258])
-    scale_bars.append([skimio.imread(input_path+'/'+'Scale_9p4px_nm.tif',as_grey=True),9.4])
-    scale_bars.append([skimio.imread(input_path+'/'+'Scale_4p51px_nm.tif',as_grey=True),4.51])
+    scale_bars.append([skimio.imread(input_path+'/'+'Scale_0p654px_nm.tif',as_grey=True,plugin='matplotlib'),0.654])
+    scale_bars.append([skimio.imread(input_path+'/'+'Scale_0p532px_nm.tif',as_grey=True,plugin='matplotlib'),0.532])
+    scale_bars.append([skimio.imread(input_path+'/'+'Scale_1p425px_nm.tif',as_grey=True,plugin='matplotlib'),1.425])
+    scale_bars.append([skimio.imread(input_path+'/'+'Scale_2p88px_nm.tif',as_grey=True,plugin='matplotlib'),2.88])
+    scale_bars.append([skimio.imread(input_path+'/'+'Scale_3p44px_nm.tif',as_grey=True,plugin='matplotlib'),3.44])
+    scale_bars.append([skimio.imread(input_path+'/'+'Scale_5p14px_nm.tif',as_grey=True,plugin='matplotlib'),5.14])
+    scale_bars.append([skimio.imread(input_path+'/'+'Scale_2px_nm.tif',as_grey=True,plugin='matplotlib'),2])
+    scale_bars.append([skimio.imread(input_path+'/'+'Scale_7p258px_nm.tif',as_grey=True,plugin='matplotlib'),7.258])
+    scale_bars.append([skimio.imread(input_path+'/'+'Scale_9p4px_nm.tif',as_grey=True,plugin='matplotlib'),9.4])
+    scale_bars.append([skimio.imread(input_path+'/'+'Scale_4p51px_nm.tif',as_grey=True,plugin='matplotlib'),4.51])
 
     match_score = []
 
@@ -572,6 +530,7 @@ parser.add_argument('-o','--outline', help='draw particle outlines on the image'
 parser.add_argument('-v','--voronoi', help='draw the voronoi diagram on the image', action='store_true')
 parser.add_argument('-e','--edge', help='plot the symmetry metric of particles at superlattice edge', action='store_true')
 parser.add_argument('-mc','--montecarlo', help='caclulate NN dist, Bond width, etc.', action='store_true')
+parser.add_argument('-d','--debug', help='turn on debugging output', action='store_true')
 parser.add_argument('order',nargs='?', help='order of the structure metric', type=int, default=0)
 parser.add_argument('img_file',help='image file to analyze')
 parser.add_argument('pts_file',nargs='?',help='XY point data file',default='')
@@ -581,6 +540,16 @@ args = parser.parse_args()
 im = skimio.imread(args.img_file,as_grey=True,plugin='matplotlib')
 im_original = np.empty_like(im)
 np.copyto(im_original,im)
+
+if args.debug:
+    DEBUG_OUTPUT = True
+    print('Debugging output turned on')
+
+if DEBUG_OUTPUT:
+    implot = plt.imshow(im)
+    implot.set_cmap('gray')
+    plt.gca().set_title('Imported Image')
+    plt.show()
 
 output_data_path = path.dirname(args.img_file)
 filename = str.split(path.basename(args.img_file),'.')[0]
