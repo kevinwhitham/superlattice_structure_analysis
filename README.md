@@ -100,6 +100,14 @@ N is the order of the symmetry you're looking for (4 or 6 for square or hexagona
 model can be either 'para' or 'uniform' to fit using a paracrystalline disorder model, or a uniform (uncorrelated) model
 distance is the maximum distance to calculate and fit the radial distribution function in units of the nearest neighbor distance
 
+### Examples ###
+You can practice on a provided example image by running the following commands.
+```
+#!
+python structure_metric.py -o -m -e 4 ../examples/example.tif
+python fit_rdf.py 4 para 5 ../examples/example.tif
+python fit_rdf.py 4 uniform 5 ../examples/example.tif
+```
 
 
 ### Dependencies: ###
