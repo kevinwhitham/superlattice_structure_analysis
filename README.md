@@ -109,6 +109,14 @@ python fit_rdf.py 4 para 5 ../examples/example.tif
 python fit_rdf.py 4 uniform 5 ../examples/example.tif
 ```
 
+### Windows Notes ###
+If you are running on Windows, you should buy a Mac. Until then, you might need to recompile the minkowski_metric module if you get an error about not finding the module 'minkowski_metric'. To do so you'll need to have a compiler, such as Microsoft Visual Studio (check [this](https://github.com/cython/cython/wiki/CythonExtensionsOnWindows)). Make sure you have the cython module, then run:
+```
+python setup_minkowski_metic.py build_ext --inplace
+```
+
+This should generate a file 'minkowski_metric.pyd'
+
 
 ### Dependencies: ###
 Python (tested with 2.7.8) with packages matplotlib, numpy, scipy, scikit-image.
