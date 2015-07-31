@@ -167,16 +167,30 @@ def morphological_threshold(im, white_background, mean_radius, min_feature_size,
     if DEBUG_OUTPUT:
         print('Morphological threshold mean radius (px): '+str(mean_radius))
     
-    im_mod = im.astype('float32')
+    im_mod = np.array(im, dtype='float64')
 
     if white_background:
         im_mod = np.abs(im_mod-np.max(im_mod))
+        
+    # subtract the mean before running match_template
+    # not sure this works quite right
+    im_mod = im_mod - np.mean(im_mod)
 
     # set large areas of background to zero using the mask
     im_mod = im_mod * mask
+    
+    if DEBUG_OUTPUT:
+        print(np.max(im_mod))
+        print(np.min(im_mod))        
 
     #topped_im = tophat(im_mod,disk(mean_radius),mask=mask)
-    matched_im = match_template(im_mod,template=np.pad(disk(int(mean_radius/4)),pad_width=int(mean_radius), mode='constant',constant_values=0),pad_input=True)
+    template_matrix = np.pad(disk(int(mean_radius/4)),pad_width=int(mean_radius), mode='constant',constant_values=0)
+    
+    matched_im = match_template(im_mod,template=template_matrix,pad_input=True)
+    
+    if DEBUG_OUTPUT:
+        print(np.max(matched_im))
+        print(np.min(matched_im))
 
     thresh = threshold_isodata(matched_im)
     matched_im_bin = matched_im > thresh
@@ -596,15 +610,18 @@ if len(args.pts_file) == 0:
     radii_bins += (radii_bins[1]-radii_bins[0])/2
     popt, pcov = curve_fit(gaussian, radii_bins[0:(len(radii_bins)-1)], radii_hist, p0=(np.max(radii_hist),np.mean(radii),np.std(radii)))
     fit_amp, fit_mean, fit_std = popt
+    radii_mean = np.mean(radii)
+    radii_std = np.std(radii)
 
     particle_data = np.hstack((pts,radii))
 
     # save the input points to a file
     if not args.nodata:
         header_string = 'Particle centroids in pixel units\n'
-        header_string += 'Particle radii - half of the average of the major and minor diameters of an ellipse fit to the particle area\n'
+        header_string += 'Particle radii - the average of the major and minor radii of an ellipse fit to the particle area\n'
         header_string += 'total particles: '+str(len(pts))+'\n'
-        header_string += 'mean radius: %(rad_nm).2g Std.Dev. %(sd_nm).2g (nm), %(rad_px).2g Std.Dev. %(sd_px).2g (pixels)\n' % {'rad_nm':fit_mean, 'sd_nm':fit_std, 'rad_px':fit_mean*pixels_per_nm, 'sd_px':fit_std*pixels_per_nm}
+        header_string += 'mean radius (raw data): %(rad_nm).2g Std.Dev. %(sd_nm).2g (nm), %(rad_px).2g Std.Dev. %(sd_px).2g (pixels)\n' % {'rad_nm':radii_mean, 'sd_nm':radii_std, 'rad_px':radii_mean*pixels_per_nm, 'sd_px':radii_std*pixels_per_nm}
+        header_string += 'mean radius (gaussian fit): %(rad_nm).2g Std.Dev. %(sd_nm).2g (nm), %(rad_px).2g Std.Dev. %(sd_px).2g (pixels)\n' % {'rad_nm':fit_mean, 'sd_nm':fit_std, 'rad_px':fit_mean*pixels_per_nm, 'sd_px':fit_std*pixels_per_nm}
         header_string += 'X (pixel)\tY (pixel)\tradius (nm)'
         np.savetxt(output_data_path+'/'+filename+'_particles.txt',particle_data,fmt='%.4e',delimiter='\t',header=header_string)
         np.savez(output_data_path+'/'+filename+'_particles.npz',pixels_per_nm=pixels_per_nm, centroids=pts, radii=radii)
