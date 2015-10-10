@@ -42,6 +42,10 @@ from skimage.filters.rank import tophat
 import argparse
 from skimage import io as skimio
 from os import path
+from os import walk
+
+# regular expressions for parsing scalebar filenames
+import re
 
 # for matching the scale bar
 from skimage.feature import match_template
@@ -350,23 +354,33 @@ def get_particle_centers(im, white_background, pixels_per_nm, morph):
 def get_image_scale(im):
 
     scale = 0.0
-    bar_width = 0
+    topleft = (0,0)
+    bottomright = (0,0)
 
-    input_path = path.normpath('../test_data/input')
+    input_path = path.normpath('../resources/scalebars')
 
-    # images of scale bars to match with the input image
-    # second element is the scale in units of pixels/nm
+    # load all files in scalebars directory and sub-directories
+    scalebar_filesnames = []
+    for (dirpath, dirnames, filesnames) in walk(input_path):
+        scalebar_filesnames.extend(filesnames)
+
     scale_bars = []
-    scale_bars.append([skimio.imread(input_path+'/'+'Scale_0p654px_nm.tif',as_grey=True,plugin='matplotlib'),0.654])
-    scale_bars.append([skimio.imread(input_path+'/'+'Scale_0p532px_nm.tif',as_grey=True,plugin='matplotlib'),0.532])
-    scale_bars.append([skimio.imread(input_path+'/'+'Scale_1p425px_nm.tif',as_grey=True,plugin='matplotlib'),1.425])
-    scale_bars.append([skimio.imread(input_path+'/'+'Scale_2p88px_nm.tif',as_grey=True,plugin='matplotlib'),2.88])
-    scale_bars.append([skimio.imread(input_path+'/'+'Scale_3p44px_nm.tif',as_grey=True,plugin='matplotlib'),3.44])
-    scale_bars.append([skimio.imread(input_path+'/'+'Scale_5p14px_nm.tif',as_grey=True,plugin='matplotlib'),5.14])
-    scale_bars.append([skimio.imread(input_path+'/'+'Scale_2px_nm.tif',as_grey=True,plugin='matplotlib'),2])
-    scale_bars.append([skimio.imread(input_path+'/'+'Scale_7p258px_nm.tif',as_grey=True,plugin='matplotlib'),7.258])
-    scale_bars.append([skimio.imread(input_path+'/'+'Scale_9p4px_nm.tif',as_grey=True,plugin='matplotlib'),9.4])
-    scale_bars.append([skimio.imread(input_path+'/'+'Scale_4p51px_nm.tif',as_grey=True,plugin='matplotlib'),4.51])
+    ipart = 1
+    fpart = 0.0
+    for filename in scalebar_filesnames:
+        reg_result = re.search('Scale_(\d*)p*(\d*)',filename)
+
+        if reg_result.group(1):
+            ipart = int(reg_result.group(1))
+
+        if reg_result.group(2):
+            fpart = float('0.'+reg_result.group(2))
+
+        px_per_nm = ipart+fpart
+
+        # images of scale bars to match with the input image
+        # second element is the scale in units of pixels/nm
+        scale_bars.append([skimio.imread(input_path+'/'+filename,as_grey=True,plugin='matplotlib'),px_per_nm])
 
     match_score = []
 
@@ -379,18 +393,21 @@ def get_image_scale(im):
 
         match_score.append(result[row][col])
 
-    # the match score should be about 0.999999
-    if np.max(match_score) > 0.99:
+        # the match score should be about 0.999999
+        if result[row][col] > 0.99:
 
-        scale = scale_bars[np.argmax(match_score)][1]
-        bar_width = scale_bars[np.argmax(match_score)][0].shape[1]
-        
-        print('Scale: '+str(scale)+' pixels/nm, Score: '+str(np.max(match_score)))
+            pt1 = (row,col)
+            pt2 = (row+scale_bar.shape[0],col+scale_bar.shape[1])
 
-    else:
+            scale = pixels_per_nm
+
+            print('Scale: '+str(scale)+' pixels/nm, Score: '+str(np.max(match_score)))
+            break #stop looking
+
+    if np.max(match_score) < 0.99:
         print('!!!!!!!!!!!!!!!!!!!! No scale bar found !!!!!!!!!!!!!!!!!!!!!')
 
-    return [np.double(scale),((985,1369-bar_width),(1025,1369))]
+    return [np.double(scale),(topleft,bottomright)]
 
 def create_custom_colormap():
 
@@ -770,8 +787,11 @@ if bond_order > 0:
                     facet_x_dist = np.abs(vertex2[0]-vertex1[0])+1
                     facet_y_dist = np.abs(vertex2[1]-vertex1[1])+1
                     range_len = np.max((facet_x_dist,facet_y_dist))
-                    x_range = np.linspace(vertex1[0],vertex2[0],num=range_len,dtype='i4')
-                    y_range = np.linspace(vertex1[1],vertex2[1],num=range_len,dtype='i4')
+                    x_range = np.linspace(vertex1[0],vertex2[0],num=range_len)
+                    y_range = np.linspace(vertex1[1],vertex2[1],num=range_len)
+
+                    x_range = x_range.astype(int)
+                    y_range = y_range.astype(int)
 
                     bond_width = np.sum(binary_im[y_range,x_range])/pixels_per_nm
                     bond_graph[input_pair_indices[0],input_pair_indices[1]] = bond_width
