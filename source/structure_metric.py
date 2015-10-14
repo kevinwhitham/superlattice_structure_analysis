@@ -13,6 +13,7 @@ import scipy.sparse as sparse
 
 # for fitting the radius distribution
 from scipy.optimize import curve_fit
+from scipy.stats import linregress
 
 # for disabling annoying warnings
 import warnings
@@ -36,7 +37,6 @@ from skimage.feature import peak_local_max
 from scipy import ndimage
 from skimage.draw import circle
 from skimage.morphology import disk
-from skimage.filters.rank import tophat
 
 # for command line interface
 import argparse
@@ -396,13 +396,13 @@ def get_image_scale(im):
         # the match score should be about 0.999999
         if result[row][col] > 0.99:
 
-            pt1 = (row,col)
-            pt2 = (row+scale_bar.shape[0],col+scale_bar.shape[1])
+            topleft = (row,col)
+            bottomright = (row+scale_bar.shape[0],col+scale_bar.shape[1])
 
             scale = pixels_per_nm
 
             print('Scale: '+str(scale)+' pixels/nm, Score: '+str(np.max(match_score)))
-            break #stop looking
+            break # we found it, stop looking
 
     if np.max(match_score) < 0.99:
         print('!!!!!!!!!!!!!!!!!!!! No scale bar found !!!!!!!!!!!!!!!!!!!!!')
@@ -550,6 +550,14 @@ def plot_nn_distance(im,line_segments,nn_distance_list):
 def gaussian(x, amp, mean, std):
     return amp/(np.sqrt(2.0*np.pi)*std)*np.exp(-(x-mean)**2/(2.0*std**2))
 
+def square(x, amp, center, width):
+    out = np.zeros(len(x))
+    peaks = np.linspace(center-width,center+width,10)
+    for peak in peaks:
+        out += gaussian(x,amp*np.sqrt(2.0*np.pi)*width/10,peak,width/10)
+
+    return out
+
 
 
 parser = argparse.ArgumentParser()
@@ -680,6 +688,8 @@ if bond_order > 0:
 
     if np.any(np.isnan(np.asarray(msm)[:,1])):
         raise ValueError('nan found in structure metric array')
+else:
+    print("No bond order given, only the particle locations will be found")
 
 if not args.noplot:
 
@@ -709,8 +719,19 @@ if bond_order > 0:
         header_string +=    'region_index\tPsi'+str(bond_order)
         np.savetxt(output_data_path+'/'+filename+'_Psi'+str(bond_order)+'_data.txt',msm,fmt=('%u','%.3f'),delimiter='\t',header=header_string)
 
+# the rest of this should be moved to another file
 if bond_order > 0:
     if args.montecarlo:
+
+        # make sure that im is not altered
+        if background:
+            # invert a light background image
+            im_greyscale = np.abs(im_original-np.max(im_original))
+        else:
+            im_greyscale = im_original
+
+        max_image_intensity = np.max(im_original)
+
         # Calculate the "bond strengths"
         binary_im = binary # use the binary from get_particles above instead of: make_binary_image(im,background,2*pixels_per_nm,adaptive=1)
         nn_dist_list = []
@@ -732,8 +753,9 @@ if bond_order > 0:
         # lists for plotting
         bond_list_filtered = []
         nn_dist_list_filtered= []
-        line_segments = []
-        line_segments_filtered = []
+        bond_line_segments = []
+        bond_line_segments_filtered = []
+        bond_width_segments = []
 
         # to draw the bonds between points
         for ridge_vert_indices,input_pair_indices in zip(vor.ridge_vertices,vor.ridge_points):
@@ -793,47 +815,241 @@ if bond_order > 0:
                     x_range = x_range.astype(int)
                     y_range = y_range.astype(int)
 
-                    bond_width = np.sum(binary_im[y_range,x_range])/pixels_per_nm
+                    # the old, fast, simple way:
+                    # need to do some trig here...
+                    #bond_width = np.sum(binary_im[y_range,x_range])/pixels_per_nm
+
+                    bond_width = 0
+
+                    # the new, "improved" way, instead of counting the number of non-background pixels
+                    # along the facet line in a binary image, fit some profile to the greyscale image
+
+                    # find the length of the facet in pixel units
+                    facet_length = np.sqrt(float(facet_y_dist)**2 + float(facet_x_dist)**2)
+
+                    # try extending the line in both directions a little to try to find some background pixels
+                    extension_factor = 0.05 # extend this much in both directions
+                    phi = np.arctan(float(facet_y_dist)/float(facet_x_dist))
+
+                    x_facet_start = int(x_range[0] + np.sign(x_range[0]-x_range[-1]) * np.cos(phi) * (facet_length * extension_factor))
+                    if x_facet_start < 0:
+                        x_facet_start = 0
+                    elif x_facet_start > im_greyscale.shape[1]-1:
+                        x_facet_start = im_greyscale.shape[1]-1
+
+                    y_facet_start = int(y_range[0] + np.sign(y_range[0]-y_range[-1]) * np.sin(phi) * (facet_length * extension_factor))
+                    if y_facet_start < 0:
+                        y_facet_start = 0
+                    elif y_facet_start > im_greyscale.shape[0]-1:
+                        y_facet_start = im_greyscale.shape[0]-1
+
+                    x_facet_end = int(x_range[-1] + np.sign(x_range[-1]-x_range[0]) * np.cos(phi) * (facet_length * extension_factor))
+                    if x_facet_end < 0:
+                        x_facet_end = 0
+                    elif x_facet_end > im_greyscale.shape[1]-1:
+                        x_facet_end = im_greyscale.shape[1]-1
+
+                    y_facet_end = int(y_range[-1] + np.sign(y_range[-1]-y_range[0]) * np.sin(phi) * (facet_length * extension_factor))
+                    if y_facet_end < 0:
+                        y_facet_end = 0
+                    elif y_facet_end > im_greyscale.shape[0]-1:
+                        y_facet_end = im_greyscale.shape[0]-1
+
+                    range_len = max(np.abs(x_facet_start-x_facet_end), np.abs(y_facet_start-y_facet_end))
+
+                    # overwrite x_range, y_range
+                    x_range = np.linspace(x_facet_start,x_facet_end,num=range_len, dtype='int')
+                    y_range = np.linspace(y_facet_start,y_facet_end,num=range_len, dtype='int')
+
+                    # overwrite the length now that we've extended it
+                    facet_length = facet_length + 2.0 * extension_factor * facet_length
+
+
+                    # don't try to fit a flat line or a very small line
+                    # need at least 3 points to fit a function with 3 parameters
+                    if int(range_len) > 9:
+
+                        # now we get the values to fit
+                        # average some values to the left and right of the facet line
+                        averaging_steps = np.linspace(-0.1 * facet_length, 0.1 * facet_length, num=2*0.1*facet_length+1)
+                        facet_pixel_values = np.zeros(range_len)
+                        theta = np.arctan2( (y_range[-1]-y_range[0]) , (x_range[-1] - x_range[0]) )
+
+                        bond_area = np.empty((0,2))
+
+                        for step in averaging_steps:
+                            # move perpendicular to the facet line
+                            # a vertical line will only shift in x
+                            # a horizontal line will only shift in y
+                            x_shift = int(step * np.sin(theta))
+                            y_shift = -int(step * np.cos(theta))
+
+                            # for plotting in debug code
+                            bond_area = np.vstack((bond_area,np.vstack((x_range+x_shift, y_range+y_shift)).transpose()))
+
+                            facet_pixel_values += im_greyscale[y_range + y_shift, x_range + x_shift]
+
+                        facet_pixel_values = facet_pixel_values/len(averaging_steps)
+
+                        # normalize the values to help the fitting
+                        facet_pixel_values = (facet_pixel_values - np.min(facet_pixel_values))/np.max(facet_pixel_values)
+
+                        # fit a square function to that vector of intensity values
+                        # square(x, amp, center, width)
+                        # gaussian(x, amp, mean, std)
+                        # width is the extent of the square function on either side of center
+                        width_guess = facet_length/4.0
+                        center_guess = facet_length/2.0
+                        amp_guess = facet_pixel_values.mean()
+                        params = (amp_guess, center_guess, width_guess)
+
+                        # debug to find problematic values
+                        # print(params,len(facet_pixel_values))
+
+                        fit_func = square
+                        # fit_func = gaussian
+
+                        try:
+                            fit_window = np.linspace(0,facet_length, num=len(facet_pixel_values))
+                            popt, pcov = curve_fit(fit_func, fit_window, facet_pixel_values, p0=params)
+
+                            if fit_func == square:
+                                bond_width = popt[2]*2.0/pixels_per_nm
+                                bond_center = popt[1]
+                                fit_curve = square(fit_window, popt[0], popt[1], popt[2])
+
+                            elif fit_func == gaussian:
+                                # FWHM from gaussian
+                                # might need to modify this because the background isn't always near 0 if the image is not binary
+                                bond_width = 2.0*np.sqrt(2.0*np.log(2))*popt[2]/pixels_per_nm
+                                bond_center = popt[1]
+                                fit_curve = gaussian(fit_window, popt[0], popt[1], popt[2])
+
+
+                            # do a linear regression to find the R**2 value for the fit
+                            # bad fits will be thrown out
+                            s, i, r, p, se = linregress(facet_pixel_values,fit_curve)
+
+
+                            # for plotting the bond
+                            x_bond_start = int(x_range[0] + np.sign(x_range[-1]-x_range[0]) * np.cos(phi) * (bond_center - bond_width/2*pixels_per_nm))
+                            y_bond_start = int(y_range[0] + np.sign(y_range[-1]-y_range[0]) * np.sin(phi) * (bond_center - bond_width/2*pixels_per_nm))
+
+                            x_bond_end = int(x_range[0] + np.sign(x_range[-1]-x_range[0]) * np.cos(phi) * (bond_center + bond_width/2*pixels_per_nm))
+                            y_bond_end = int(y_range[0] + np.sign(y_range[-1]-y_range[0]) * np.sin(phi) * (bond_center + bond_width/2*pixels_per_nm))
+
+
+                            if DEBUG_OUTPUT:
+                                # use this to look at the fitting of bond width
+                                # plot the pixel values and the fit curve
+                                plt.subplot(1, 2, 1)
+                                plt.scatter(np.arange(len(x_range)),facet_pixel_values)
+                                plt.plot(np.arange(len(x_range)),fit_curve,'r-')
+
+                                # plot the image where the bond is, overlay the facet line and the bond width
+                                plt.subplot(1, 2, 2)
+                                plt.imshow(im_greyscale, cmap='gray', interpolation='none')
+                                plt.plot(x_range,y_range,'b-')
+                                plt.scatter(bond_area[:,0], bond_area[:,1], edgecolor='none', alpha=0.1)
+
+                                # plot a line showing the fit bond_width
+                                bond_len = int(max(np.abs(x_bond_start-x_bond_end),np.abs(y_bond_start-y_bond_end)))
+                                bond_x = np.linspace(x_bond_start, x_bond_end, num=bond_len)
+                                bond_y = np.linspace(y_bond_start, y_bond_end, num=bond_len)
+
+                                plt.plot(bond_x, bond_y, 'r-')
+
+                                # just show the part of the image where the bond is
+                                plt.gca().set_xlim(np.min(x_range)-range_len, np.max(x_range)+range_len)
+                                plt.gca().set_ylim(np.min(y_range)-range_len, np.max(y_range)+range_len)
+                                plt.gca().set_title('Facet Length: %(facet)i R^2: %(rs).3f\n Bond Width: %(bond)i (pixels), Center: %(center)i' % {'facet':facet_length, 'rs':r**2, 'bond':bond_width*pixels_per_nm, 'center':bond_center})
+                                plt.show()
+
+                            # sanity checks
+                            if bond_width*pixels_per_nm > facet_length:
+                                # we'll allow the width to be a little more than
+                                # the fitting window, because the window doesn't
+                                # always span the entire bond, but the fit can sometimes
+                                # be a good estimate based on the curvature of the bond
+                                bond_width = 0
+
+                            if bond_center < 0 or bond_center > facet_length:
+                                # if the center of the bond is outside of the fitting window,
+                                # it's probably a bad fit, throw it out
+                                bond_width = 0
+
+                            if r**2 < 0.5:
+                                # bad fit
+                                bond_width = 0
+
+                            # save the bond locations as line segments for output in an image
+                            if bond_width:
+                                bond_width_segments.append(np.asarray([(x_bond_start,y_bond_start),(x_bond_end,y_bond_end)]))
+
+                        except RuntimeError:
+                            # this happens if the curve_fit method doesn't converge
+                            # the bond width will be zero in this case
+                            pass
+
+
                     bond_graph[input_pair_indices[0],input_pair_indices[1]] = bond_width
                     bond_graph[input_pair_indices[1],input_pair_indices[0]] = bond_width
                     bond_list.append(bond_width)
 
                     # make the line segments for plotting bonds, neighbor distances, whatever
-                    line_segments.append(np.asarray([pts[input_pair_indices[0]],pts[input_pair_indices[1]]]))
+                    bond_line_segments.append(np.asarray([pts[input_pair_indices[0]],pts[input_pair_indices[1]]]))
 
                     edges.append([input_pair_indices[0],input_pair_indices[1],nn_distance,bond_width])
 
                     if not bond_width == 0:
                         bond_list_filtered.append(bond_width)
                         nn_dist_list_filtered.append(nn_distance)
-                        line_segments_filtered.append(np.asarray([pts[input_pair_indices[0]],pts[input_pair_indices[1]]]))
+                        bond_line_segments_filtered.append(np.asarray([pts[input_pair_indices[0]],pts[input_pair_indices[1]]]))
     
                 else:
                     # at least one ridge vertex is off the image
-                    # these two input points are boundary sites
+                    # these two input points are boundary
+                    # boundary_sites is an Nx1 matrix
                     boundary_sites[input_pair_indices,0] = np.int(1)
+            else:
+                # why are these no good?
+                # are they on the boundary?
+                boundary_sites[input_pair_indices,0] = np.int(1)
 
         if not args.noplot:
 
             plt.figure(3)
-            plot_bonds(im,line_segments_filtered,bond_list_filtered)
-            plt.savefig(output_data_path+'/'+filename+'_bond_map.pdf',bbox_inches='tight')
+            plot_bonds(im_original,bond_line_segments_filtered,bond_list_filtered)
+            plt.savefig(output_data_path+'/'+filename+'_bond_map.png',bbox_inches='tight', dpi=300)
 
             plt.figure(4)
-            plot_bonds(binary_im,line_segments,bond_list)
-            plt.savefig(output_data_path+'/'+filename+'_bond_map_binary.pdf',bbox_inches='tight')
+            plot_bonds(im_original,bond_width_segments,bond_list_filtered)
+            plt.savefig(output_data_path+'/'+filename+'_bond_width_map.png',bbox_inches='tight', dpi=300)
 
             # make a map of the nn distances
             plt.figure(5)
-            plot_nn_distance(im_original,line_segments_filtered,nn_dist_list_filtered)
-            plt.savefig(output_data_path+'/'+filename+'_nn_dist_map.pdf',bbox_inches='tight')
+            plot_nn_distance(im_original,bond_line_segments_filtered,nn_dist_list_filtered)
+            plt.savefig(output_data_path+'/'+filename+'_nn_dist_map.png',bbox_inches='tight', dpi=300)
 
             # plot a histogram of the "bond strengths"
+            # fit a gaussian to the histogram data
+            bond_hist_window = 3.0*np.std(bond_list_filtered)
+            bond_hist, bond_hist_bins = np.histogram(bond_list_filtered, bins=len(bond_list_filtered)/4, range=(np.mean(bond_list_filtered)-bond_hist_window,np.mean(bond_list_filtered)+bond_hist_window))
+
+            # shift bin locations from edge to center
+            bond_hist_bins += (bond_hist_bins[1]-bond_hist_bins[0])/2
+            popt, pcov = curve_fit(gaussian, bond_hist_bins[0:len(bond_hist_bins)-1], bond_hist, p0=(np.max(bond_hist),np.mean(bond_list_filtered),np.std(bond_list_filtered)))
+            fit_amp, fit_mean, fit_std = popt
+
             plt.figure(6)
             plt.hist(bond_list_filtered,bins=len(bond_list_filtered)/4)
+            fit_curve = gaussian(bond_hist_bins,fit_amp,fit_mean,fit_std)
+            plt.plot(bond_hist_bins, fit_curve, 'r-', linewidth=3)
+            label_string = '%(count)i bonds, Width: %(mean).3g (nm), $\sigma$: %(sd).2g (nm), %(percent).2g%%' % {'count':len(bond_list_filtered), 'mean':fit_mean, 'sd':fit_std, 'percent':100.0*fit_std/fit_mean }
+            plt.gca().set_title(label_string)
             plt.ylabel('Count')
-            plt.xlabel('Width (nm)')
-            plt.gca().set_title('Bond Widths (filtered)')
+            plt.xlabel('Connection Width (nm)')
+            plt.gca().set_title(label_string)
             plt.savefig(output_data_path+'/'+filename+'_bond_hist.png', bbox_inches='tight')
 
             # plot a histogram of the nearest neighbor distances
