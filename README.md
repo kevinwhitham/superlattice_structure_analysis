@@ -53,7 +53,7 @@ To run the structure, size, and connection analysis type:
 ```
 #!
 
-python structure_metric.py [options] <N> <path to image file> [parameters]
+python structure_metric.py [options] N <path to image file> [parameters]
 ```
 
 N is the desired order of the structure metric (e.g. 4, 6, etc.)
@@ -104,10 +104,11 @@ To analyze the number of connections per site and the percentage of connections 
 
 ```
 #!
-python bond_analysis.py [-m] N <path to image file>
+python bond_analysis.py [options] N <path to image file>
 ```
 
 options:
+-h help
 -m output images showing the number of connections per site and a histogram of the number of connections
 
 parameters:
