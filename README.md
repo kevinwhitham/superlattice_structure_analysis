@@ -6,11 +6,11 @@ This is the readme document accompanying software to perform analysis on images 
 
 This software performs analysis of images containing particles, connected or unconnected, to measure:
 
-radii
+radius
 centroid
 nearest neighbor distance
 structure metric
-width of "bridge" or "bond" connecting nearest neighbors
+width and number of connections to nearest neighbors
 
 The data is output as text files, numpy array files, and images.
 
@@ -99,6 +99,19 @@ python fit_rdf.py <N> <model> <distance> <path to image file>
 N is the order of the symmetry you're looking for (4 or 6 for square or hexagonal)
 model can be either 'para' or 'uniform' to fit using a paracrystalline disorder model, or a uniform (uncorrelated) model
 distance is the maximum distance to calculate and fit the radial distribution function in units of the nearest neighbor distance
+
+To analyze the number of connections per site and the percentage of connections missing (after running structure analysis with the option -mc to output data about the connections):
+
+```
+#!
+python bond_analysis.py [-m] N <path to image file>
+```
+
+options:
+-m output images showing the number of connections per site and a histogram of the number of connections
+
+parameters:
+N the order of the structure for calculating the maximum number of bonds (4 for square, 6 for hexagonal, etc.)
 
 ### Examples ###
 You can practice on a provided example image by running the following commands.
