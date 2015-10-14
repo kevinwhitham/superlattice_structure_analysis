@@ -69,7 +69,9 @@ prefix options are:
 -nd, --nodata       do not output data files (if you only want the images and plots)
 -e, --edge          plot the structure metric or outline of particles at the edge of a blank region
 -m, --morph         use morphological filtering during particle search
--o, --outline       plot the Voronoi cells as outlines without the structure metric color
+-s, --small         look for very small particles (<5 pixels in diameter)
+-o, --outline       plot circles on the image showing the location and diameter
+-v, --voronoi       plot the Voronoi cells as outlines without the structure metric color
 -mc, --montecarlo   compute and output data that could be used for MC (NN distance, bonds, etc.)
 -d, --debug         turns on debugging output, you can see how well it is thresholding your image
 ```
