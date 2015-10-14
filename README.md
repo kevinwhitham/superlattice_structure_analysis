@@ -40,7 +40,7 @@ The data is output as text files, numpy array files, and images.
 
  2. clone the repository to your machine
     The easiest way to keep up with bug fixes, new development, etc. is to 
-    use an SVN client like SourceTree (www.sourcetreeapp.com)
+    use an SVN client like SourceTree (www.sourcetreeapp.com) or an IDE like PyCharm (www.jetbrains.com/pycharm)
     
     Otherwise you can just download the latest version as a zip file
     
