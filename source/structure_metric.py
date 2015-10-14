@@ -2,6 +2,7 @@
 # Calculates the Minkowski structure metrics for an array of points
 # Reference: Mickel, Walter, et al. "Shortcomings of the bond orientational order parameters for the analysis of disordered particulate matter." The Journal of chemical physics (2013)
 # 20140902 Kevin Whitham, Cornell University
+# License: GNU Public License (GPL) v.3.0
 
 # general math
 import numpy as np

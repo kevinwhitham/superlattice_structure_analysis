@@ -305,10 +305,12 @@ def vector_corr(w1, w2):
 
 
 """
+Code after this point written by
+Kevin Whitham, Cornell University
+20150715
+License: GNU Public License (GPL) v.3.0
 functions for generating pair distribution functions
 for disordered 2D lattices
-Kevin Whitham
-20150715
 """
 
 import numpy as np

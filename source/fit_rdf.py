@@ -1,6 +1,8 @@
 # fit_rdf.py
 # convenience functions for running a radial distribution function (rdf) calculation on a set of
 # points and fitting the rdf to a model to quantify disorder
+# 20151014 Kevin Whitham, Cornell University
+# License: GNU Public License (GPL) v.3.0
 
 import numpy as np
 import matplotlib as mpl

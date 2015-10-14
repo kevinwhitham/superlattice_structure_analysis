@@ -1,5 +1,6 @@
 __author__ = 'kevin'
 # 20151009 Kevin Whitham, Cornell University
+# License: GNU Public License (GPL) v.3.0
 
 import numpy as np
 import argparse
