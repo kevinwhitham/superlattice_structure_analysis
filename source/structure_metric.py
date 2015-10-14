@@ -60,7 +60,7 @@ from minkowski_metric import minkowski
 DEBUG_OUTPUT = False
 
 
-def make_binary_image(im, white_background, min_feature_size, adaptive):
+def make_binary_image(im, white_background, min_feature_size, small):
 
     image = im.astype('float32')
 
@@ -74,7 +74,8 @@ def make_binary_image(im, white_background, min_feature_size, adaptive):
     
     # get rid of speckle
     # this is not good for very small particles
-    binary_closing(binary, selem=disk(min_feature_size), out=binary)
+    if not small:
+        binary_closing(binary, selem=disk(min_feature_size), out=binary)
 
     # make a map of the distance to a particle to find large background patches
     # this is a distance map of the inverse binary image
@@ -167,7 +168,7 @@ def adaptive_binary_image(im, white_background, min_feature_size, std_dev, mask)
     
     return binary, new_mask
 
-def morphological_threshold(im, white_background, mean_radius, min_feature_size, mask):
+def morphological_threshold(im, white_background, mean_radius, min_feature_size, small, mask):
 
     if DEBUG_OUTPUT:
         print('Morphological threshold mean radius (px): '+str(mean_radius))
@@ -185,12 +186,14 @@ def morphological_threshold(im, white_background, mean_radius, min_feature_size,
     im_mod = im_mod * mask
     
     if DEBUG_OUTPUT:
-        print(np.max(im_mod))
-        print(np.min(im_mod))        
+        print('Maximum image value: '+str(np.max(im_mod)))
+        print('Minimum image value: '+str(np.min(im_mod)))
 
-    #topped_im = tophat(im_mod,disk(mean_radius),mask=mask)
-    template_matrix = np.pad(disk(int(mean_radius/4)),pad_width=int(mean_radius), mode='constant',constant_values=0)
-    
+    if not small:
+        template_matrix = np.pad(disk(int(mean_radius/4)),pad_width=int(mean_radius), mode='constant',constant_values=0)
+    else:
+        template_matrix = np.pad(disk(int(mean_radius/2)),pad_width=int(mean_radius), mode='constant',constant_values=0)
+
     matched_im = match_template(im_mod,template=template_matrix,pad_input=True)
     
     if DEBUG_OUTPUT:
@@ -232,7 +235,7 @@ def morphological_threshold(im, white_background, mean_radius, min_feature_size,
     return labels_th, matched_im_bin
 
 
-def get_particle_centers(im, white_background, pixels_per_nm, morph):
+def get_particle_centers(im, white_background, pixels_per_nm, morph, small):
 
     if pixels_per_nm == 0:
         # default value
@@ -241,7 +244,7 @@ def get_particle_centers(im, white_background, pixels_per_nm, morph):
     # minimum size object to look for
     min_feature_size = int(3) #int(3*pixels_per_nm)
 
-    global_binary, mask = make_binary_image(im, white_background, min_feature_size, adaptive=0)
+    global_binary, mask = make_binary_image(im, white_background, min_feature_size, small)
 
     # create a distance map to find the particle centers
     # as the points with maximal distance to the background
@@ -307,7 +310,7 @@ def get_particle_centers(im, white_background, pixels_per_nm, morph):
     # morphological thresholding
     if morph:
         print('Using morphological threshold')
-        labels, morph_binary = morphological_threshold(im, white_background, int(adaptive_mean_radius*pixels_per_nm), int(adaptive_mean_radius*pixels_per_nm)/2, adaptive_mask)
+        labels, morph_binary = morphological_threshold(im, white_background, int(adaptive_mean_radius*pixels_per_nm), int(adaptive_mean_radius*pixels_per_nm)/2, small, adaptive_mask)
         regions = regionprops(labels)
         binary = morph_binary
     elif global_radii_sd/global_mean_radius < adaptive_radii_sd/adaptive_mean_radius:
@@ -566,6 +569,7 @@ parser.add_argument('-b','--black', help='black background', action='store_true'
 parser.add_argument('-np','--noplot', help='do not plot data', action='store_true')
 parser.add_argument('-nd', '--nodata', help='do not output data files (images only)', action='store_true')
 parser.add_argument('-m','--morph', help='use morphological filtering', action='store_true')
+parser.add_argument('-s','--small', help='look for very small particles (<5 pixel diameter)', action='store_true')
 parser.add_argument('-o','--outline', help='draw particle outlines on the image', action='store_true')
 parser.add_argument('-v','--voronoi', help='draw the voronoi diagram on the image', action='store_true')
 parser.add_argument('-e','--edge', help='plot the symmetry metric of particles at superlattice edge', action='store_true')
@@ -626,7 +630,7 @@ else:
 
 if len(args.pts_file) == 0:
     # find the centroid of each particle in the image
-    pts, radii, mask, binary = get_particle_centers(im,background,pixels_per_nm,args.morph)
+    pts, radii, mask, binary = get_particle_centers(im,background,pixels_per_nm,args.morph,args.small)
 
     assert len(pts) == len(radii)
     
@@ -888,7 +892,8 @@ if bond_order > 0:
                             # for plotting in debug code
                             bond_area = np.vstack((bond_area,np.vstack((x_range+x_shift, y_range+y_shift)).transpose()))
 
-                            facet_pixel_values += im_greyscale[y_range + y_shift, x_range + x_shift]
+                            # don't let the indices go out of bounds using np.clip
+                            facet_pixel_values += im_greyscale[np.clip(y_range + y_shift, 0, im_greyscale.shape[0]-1), np.clip(x_range + x_shift, 0, im_greyscale.shape[1]-1)]
 
                         facet_pixel_values = facet_pixel_values/len(averaging_steps)
 
