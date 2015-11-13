@@ -372,22 +372,25 @@ def get_image_scale(im):
         scalebar_filesnames.extend(filesnames)
 
     scale_bars = []
-    ipart = 1
-    fpart = 0.0
     for filename in scalebar_filesnames:
+        ipart = 1
+        fpart = 0.0
+
         reg_result = re.search('Scale_(\d*)p*(\d*)',filename)
 
-        if reg_result.group(1):
-            ipart = int(reg_result.group(1))
+        if reg_result:
 
-        if reg_result.group(2):
-            fpart = float('0.'+reg_result.group(2))
+            if reg_result.group(1):
+                ipart = int(reg_result.group(1))
 
-        px_per_nm = ipart+fpart
+            if reg_result.group(2):
+                fpart = float('0.'+reg_result.group(2))
 
-        # images of scale bars to match with the input image
-        # second element is the scale in units of pixels/nm
-        scale_bars.append([skimio.imread(input_path+'/'+filename,as_grey=True,plugin='matplotlib'),px_per_nm])
+            px_per_nm = ipart+fpart
+
+            # images of scale bars to match with the input image
+            # second element is the scale in units of pixels/nm
+            scale_bars.append([skimio.imread(input_path+'/'+filename,as_grey=True,plugin='matplotlib'),px_per_nm])
 
     match_score = []
 
