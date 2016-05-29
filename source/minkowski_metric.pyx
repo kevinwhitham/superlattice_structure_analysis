@@ -2,7 +2,7 @@
 # Calculates the Minkowski structure metrics for an array of points
 # Reference: Mickel, Walter, et al. "Shortcomings of the bond orientational order parameters for the analysis of disordered particulate matter." The Journal of chemical physics (2013)
 # Reference: Carlos Avenda~no and Fernando A. Escobedo, "Phase behavior of rounded hard spheres" Soft Matter 2011
-# 20140902 Kevin Whitham, Ben Savitsky, Cornell University
+# 20140902 Kevin Whitham, Ben Savitzky, Cornell University
 
 import numpy as np
 cimport numpy as np
@@ -54,13 +54,14 @@ cpdef minkowski(np.ndarray[DUBTYPE_t, ndim=2] vor_vertices, vor_regions, int l, 
     # Cython static type definitions
     cdef unsigned int region_index, region_vert_index, vert_count, facet_index
     cdef int m
-    cdef double x1, y1, x2, y2, x3, y3, rotation, cell_perimeter, sum1_real, sum1_imag, sum2, zero_sum
+    cdef double x1, y1, x2, y2, x3, y3, rotation, cell_perimeter, sum1_real, sum1_imag, sum2, zero_sum, orientation_angle
     cdef bool out_of_bounds
 
     # make a 1-D arrays to hold information about each facet
     # assume all regions have fewer than 20 facets
     cdef np.ndarray[DUBTYPE_t, ndim=1] facet_lengths       = np.zeros(20,dtype=DUBTYPE)
     cdef np.ndarray[DUBTYPE_t, ndim=1] facet_normal_angles = np.zeros(20,dtype=DUBTYPE)
+    cdef np.ndarray[DUBTYPE_t, ndim=1] global_facet_angles = np.zeros(20,dtype=DUBTYPE)
     cdef np.ndarray[DUBTYPE_t, ndim=1] interior_angles     = np.zeros(20,dtype=DUBTYPE)
     cdef np.ndarray[DUBTYPE_t, ndim=1] region              = np.zeros(20,dtype=DUBTYPE)
 
@@ -71,6 +72,13 @@ cpdef minkowski(np.ndarray[DUBTYPE_t, ndim=2] vor_vertices, vor_regions, int l, 
         vert_count = len(vor_regions[region_index])
 
         if vert_count <= 20:
+
+            # initialize arrays for this region
+            facet_lengths       = np.zeros(20,dtype=DUBTYPE)
+            facet_normal_angles = np.zeros(20,dtype=DUBTYPE)
+            global_facet_angles = np.zeros(20,dtype=DUBTYPE)
+            interior_angles     = np.zeros(20,dtype=DUBTYPE)
+            region              = np.zeros(20,dtype=DUBTYPE)
 
             # copy from vor_regions list to region array
             for region_vert_index in range(vert_count):
@@ -105,8 +113,9 @@ cpdef minkowski(np.ndarray[DUBTYPE_t, ndim=2] vor_vertices, vor_regions, int l, 
                         # relative to the facet vertex1 to vertex2
                         # is 180-90-interior_angle + the sum of all previous interior angles
                         #if (region_vert_index+1) < vert_count:
-                        rotation = np.pi-interior_angles[region_vert_index]
-                        facet_normal_angles[<unsigned int>((region_vert_index+1) % vert_count)] = ((facet_normal_angles[region_vert_index]+rotation) % (2.0*np.pi))
+                        #rotation = np.pi-interior_angles[region_vert_index]
+                        #facet_normal_angles[<unsigned int>((region_vert_index+1) % vert_count)] = ((facet_normal_angles[region_vert_index]+rotation) % (2.0*np.pi))
+                        facet_normal_angles[<unsigned int>((region_vert_index+1) % vert_count)] = ((interior_angles[region_vert_index] + facet_normal_angles[region_vert_index]) % (2.0*np.pi))
 
                         # add to the cell perimeter
                         cell_perimeter += facet_lengths[region_vert_index]
@@ -121,10 +130,22 @@ cpdef minkowski(np.ndarray[DUBTYPE_t, ndim=2] vor_vertices, vor_regions, int l, 
 
                 if not out_of_bounds:
 
+                    # find the angle of each facet relative to the horizontal axis of the matrix
+                    # use these to find the orientation of the cell relative to the matrix axes
+                    x1, y1 = vor_vertices[region[0]]
+                    x2, y2 = vor_vertices[region[1]]
+                    global_facet_angles[0] = angle(x1+1,y1,x1,y1,x2,y2)
+
+                    for angle_index in range(1,vert_count):
+                        global_facet_angles[angle_index] = np.arctan(np.abs(np.tan((facet_normal_angles[angle_index] + global_facet_angles[0]) % (2.0 * np.pi))))
+
+
+                    orientation_angle = np.min(global_facet_angles[0:vert_count-1]) * 180.0 / np.pi
+
                     sum = 0.0
 
                     for facet_index in range(vert_count):
                         sum += facet_lengths[facet_index]/cell_perimeter * np.exp(1.j * l * facet_normal_angles[facet_index])
 
-                    msm.append([region_index,np.abs(sum)])
+                    msm.append([region_index,np.abs(sum),orientation_angle])
     return msm

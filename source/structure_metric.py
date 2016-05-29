@@ -436,7 +436,8 @@ def plot_symmetry(im, msm, vor, bond_order, symmetry_colormap, mask, no_fill, ma
     
     cell_patches = []
     metric_list = []
-    for region_index,metric in msm:
+    orientation_angle_list = []
+    for region_index,metric,orientation_angle in msm:
         plot_this_cell = 0
         region_index = int(region_index)
         region = vor.regions[region_index]
@@ -458,6 +459,7 @@ def plot_symmetry(im, msm, vor, bond_order, symmetry_colormap, mask, no_fill, ma
                 cell_patches.append(Polygon(verts,closed=True,edgecolor='none'))
         
             metric_list.append(metric)
+            orientation_angle_list.append(orientation_angle)
             
     if no_fill:
         pc = PatchCollection(cell_patches,match_original=True,alpha=1)
@@ -495,6 +497,54 @@ def plot_symmetry(im, msm, vor, bond_order, symmetry_colormap, mask, no_fill, ma
     plt.ylabel('Count')
     plt.savefig(output_data_path+'/'+filename+'_Psi'+str(bond_order)+'_hist.png', bbox_inches='tight')
     
+def plot_orientation(im, msm, vor, orientation_colormap, mask, map_edge_particles):
+
+    cell_patches = []
+    orientation_angle_list = []
+    for region_index,metric,orientation_angle in msm:
+        plot_this_cell = 0
+        region_index = int(region_index)
+        region = vor.regions[region_index]
+        verts = np.asarray([vor.vertices[index] for index in region])
+
+        # don't plot cells inside masked off regions of the image (blank patches)
+        int_verts = np.asarray(verts,dtype='i4')
+        if map_edge_particles:
+            if np.any(mask[int_verts[:,1],int_verts[:,0]] == 1):
+                plot_this_cell = 1
+        else:
+            if np.all(mask[int_verts[:,1],int_verts[:,0]] > 0):
+                plot_this_cell = 1
+
+        if plot_this_cell:
+            cell_patches.append(Polygon(verts,closed=True,edgecolor='none'))
+            orientation_angle_list.append(orientation_angle)
+
+        pc = PatchCollection(cell_patches,match_original=False, cmap=orientation_colormap, edgecolor='k', alpha=1)
+        pc.set_array(np.asarray(orientation_angle_list))
+
+    plt.gca().add_collection(pc)
+
+    # set the limits for the plot
+    # set the x axis range
+    plt.gca().set_xlim(0, im.shape[1])
+
+    # set the y-axis range and flip the y-axis
+    plt.gca().set_ylim(im.shape[0], 0)
+
+    # save this plot to a file
+    plt.gca().set_axis_off()
+
+    # add the colorbar
+    divider = make_axes_locatable(plt.gca())
+    cax = divider.append_axes(position='right', size='5%', pad = 0.05)
+    cbar = plt.colorbar(pc, cax=cax)
+    cax.set_xlabel('$\Theta$ (deg)', fontsize=18)
+    cax.xaxis.set_label_position('top')
+    cax.xaxis.set_label_coords(0.5, 1.04)
+
+    plt.savefig(output_data_path+'/'+filename+'_orientation_map.png',bbox_inches='tight',dpi=300)
+
 def plot_particle_outlines(im, pts, radii, pixels_per_nm):
     
     cell_patches = []
@@ -582,6 +632,7 @@ parser.add_argument('-v','--voronoi', help='draw the voronoi diagram on the imag
 parser.add_argument('-e','--edge', help='plot the symmetry metric of particles at superlattice edge', action='store_true')
 parser.add_argument('-mc','--montecarlo', help='caclulate NN dist, Bond width, etc.', action='store_true')
 parser.add_argument('-d','--debug', help='turn on debugging output', action='store_true')
+parser.add_argument('-a', '--angle', help='plot orientation angle of each Voronoi cell', action='store_true')
 parser.add_argument('bondprofile', nargs='?', help='shape of the fitting function for determining bond width (square or gaussian)', default='gaussian')
 parser.add_argument('order',nargs='?', help='order of the structure metric', type=int, default=0)
 parser.add_argument('img_file',help='image file to analyze')
@@ -724,6 +775,15 @@ if not args.noplot:
         implot.set_cmap('gray')
         symmetry_colormap = plt.get_cmap('RdBu_r')
         plot_symmetry(im, msm, vor, bond_order, symmetry_colormap, mask, args.voronoi, args.edge)
+
+        if args.angle:
+            plt.figure(1)
+            plt.clf()
+            plt.subplot(111)
+            implot = plt.imshow(im_original)
+            implot.set_cmap('gray')
+            orientation_colormap = plt.get_cmap('RdBu_r')
+            plot_orientation(im,msm,vor,orientation_colormap,mask,args.edge)
 
 
 # save the metrics to a file
@@ -880,11 +940,11 @@ if bond_order > 0:
                     elif y_facet_end > im_greyscale.shape[0]-1:
                         y_facet_end = im_greyscale.shape[0]-1
 
-                    range_len = max(np.abs(x_facet_start-x_facet_end), np.abs(y_facet_start-y_facet_end))
+                    range_len = max(np.abs(x_facet_start-x_facet_end)+1, np.abs(y_facet_start-y_facet_end)+1)
 
                     # overwrite x_range, y_range
-                    x_range = np.linspace(x_facet_start,x_facet_end,num=range_len, dtype='int')
-                    y_range = np.linspace(y_facet_start,y_facet_end,num=range_len, dtype='int')
+                    x_range = np.asarray(np.round(np.linspace(x_facet_start,x_facet_end,num=range_len)),dtype='int')
+                    y_range = np.asarray(np.round(np.linspace(y_facet_start,y_facet_end,num=range_len)),dtype='int')
 
                     # overwrite the length now that we've extended it
                     facet_length = facet_length + 2.0 * extension_factor * facet_length
@@ -990,15 +1050,15 @@ if bond_order > 0:
                                 # plot the image where the bond is, overlay the facet line and the bond width
                                 plt.subplot(1, 3, 2)
                                 plt.imshow(im_greyscale, cmap='gray', interpolation='none')
-                                plt.plot(x_range,y_range,'b-')
-                                plt.scatter(bond_area[:,0], bond_area[:,1], edgecolor='none', alpha=0.1)
+                                plt.scatter(x_range,y_range)
+                                #plt.scatter(bond_area[:,0], bond_area[:,1], edgecolor='none', alpha=0.1)
 
                                 # plot a line showing the fit bond_width
                                 bond_len = int(max(np.abs(x_bond_start-x_bond_end),np.abs(y_bond_start-y_bond_end)))
                                 bond_x = np.linspace(x_bond_start, x_bond_end, num=bond_len)
                                 bond_y = np.linspace(y_bond_start, y_bond_end, num=bond_len)
 
-                                plt.plot(bond_x, bond_y, 'r-')
+                                #plt.plot(bond_x, bond_y, 'r-')
 
                                 # just show the part of the image where the bond is
                                 plt.gca().set_xlim(np.min(x_range)-range_len, np.max(x_range)+range_len)
