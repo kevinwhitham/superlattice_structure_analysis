@@ -793,7 +793,7 @@ if bond_order > 0:
         header_string +=    'References: Mickel, W., J. Chem. Phys. (2013), Escobedo, F., Soft Matter (2011)\n'
         header_string +=    'length: '+str(len(msm))+'\n'
         header_string +=    'region_index\tPsi'+str(bond_order)
-        np.savetxt(output_data_path+'/'+filename+'_Psi'+str(bond_order)+'_data.txt',msm,fmt=('%u','%.3f'),delimiter='\t',header=header_string)
+        np.savetxt(output_data_path+'/'+filename+'_Psi'+str(bond_order)+'_data.txt',msm,fmt=('%u','%.3f','%.3f'),delimiter='\t',header=header_string)
 
 # the rest of this should be moved to another file
 if bond_order > 0:
