@@ -90,6 +90,10 @@ cpdef minkowski(np.ndarray[DUBTYPE_t, ndim=2] vor_vertices, vor_regions, int l, 
             # skip infinite cells and empty regions
             if vert_count and np.all(np.not_equal(region[:vert_count],-1)):
 
+                # find center of the region for global facet angle calculation
+                x_center = np.mean(vor_vertices[np.asarray(region[0:vert_count-1],dtype='int')][:,0])
+                y_center = np.mean(vor_vertices[np.asarray(region[0:vert_count-1],dtype='int')][:,1])
+
                 for region_vert_index in range(vert_count):
 
                     x1,y1 = vor_vertices[region[region_vert_index]]
@@ -120,6 +124,15 @@ cpdef minkowski(np.ndarray[DUBTYPE_t, ndim=2] vor_vertices, vor_regions, int l, 
                         # add to the cell perimeter
                         cell_perimeter += facet_lengths[region_vert_index]
 
+                        # find the angle of each facet relative to the horizontal axis of the matrix
+                        # use these to find the orientation of the cell relative to the matrix axes
+                        x_midpoint = min(x1,x2) + np.abs(x1-x2)/2.0
+                        y_midpoint = min(y1,y2) + np.abs(y1-y2)/2.0
+                        global_facet_angles[region_vert_index] = angle(x_center+1,y_center,x_center,y_center,x_midpoint,y_midpoint)
+
+                        if y_midpoint < y_center:
+                            global_facet_angles[region_vert_index] *= -1.0
+
                     else:
 
                         out_of_bounds = True
@@ -130,17 +143,11 @@ cpdef minkowski(np.ndarray[DUBTYPE_t, ndim=2] vor_vertices, vor_regions, int l, 
 
                 if not out_of_bounds:
 
-                    # find the angle of each facet relative to the horizontal axis of the matrix
-                    # use these to find the orientation of the cell relative to the matrix axes
-                    x1, y1 = vor_vertices[region[0]]
-                    x2, y2 = vor_vertices[region[1]]
-                    global_facet_angles[0] = angle(x1+1,y1,x1,y1,x2,y2)
+                    # choose the angle closest to horizontal, weighted by facet length
+                    #orientation_angle = global_facet_angles[np.argmin(np.arctan(np.abs(np.tan(global_facet_angles[0:vert_count-1])))/(facet_lengths[0:vert_count-1]/cell_perimeter))] * 180.0 / np.pi
 
-                    for angle_index in range(1,vert_count):
-                        global_facet_angles[angle_index] = np.arctan(np.abs(np.tan((facet_normal_angles[angle_index] + global_facet_angles[0]) % (2.0 * np.pi))))
-
-
-                    orientation_angle = np.min(global_facet_angles[0:vert_count-1]) * 180.0 / np.pi
+                    # choose the angle closest to horizontal
+                    orientation_angle = global_facet_angles[np.argmin(np.arctan(np.abs(np.tan(global_facet_angles[0:vert_count-1]))))] * 180.0 / np.pi
 
                     sum = 0.0
 

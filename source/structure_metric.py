@@ -23,7 +23,7 @@ import warnings
 import matplotlib.pyplot as plt
 from matplotlib.collections import PatchCollection
 from matplotlib.collections import LineCollection
-from matplotlib.patches import Polygon, Circle
+from matplotlib.patches import Polygon, Circle, Arrow
 from matplotlib.colors import LinearSegmentedColormap
 from mpl_toolkits.axes_grid1 import make_axes_locatable, Size
 
@@ -497,13 +497,17 @@ def plot_symmetry(im, msm, vor, bond_order, symmetry_colormap, mask, no_fill, ma
     plt.ylabel('Count')
     plt.savefig(output_data_path+'/'+filename+'_Psi'+str(bond_order)+'_hist.png', bbox_inches='tight')
     
-def plot_orientation(im, msm, vor, orientation_colormap, mask, map_edge_particles):
+def plot_orientation(im, msm, vor, pts, radii, pixels_per_nm, orientation_colormap, mask, map_edge_particles):
+
+    # set to 1 to plot a vector map instead of colormap
+    vector_map = 0
 
     cell_patches = []
+    arrow_patches = []
     orientation_angle_list = []
+    mean_radius = np.mean(radii)
     for region_index,metric,orientation_angle in msm:
         plot_this_cell = 0
-        region_index = int(region_index)
         region = vor.regions[region_index]
         verts = np.asarray([vor.vertices[index] for index in region])
 
@@ -517,13 +521,35 @@ def plot_orientation(im, msm, vor, orientation_colormap, mask, map_edge_particle
                 plot_this_cell = 1
 
         if plot_this_cell:
-            cell_patches.append(Polygon(verts,closed=True,edgecolor='none'))
-            orientation_angle_list.append(orientation_angle)
+            if vector_map:
+                x = np.mean(int_verts[:,0])
+                y = np.mean(int_verts[:,1])
+                dx = mean_radius*np.cos(np.pi/180.0 * orientation_angle)
+                dy = mean_radius*np.sin(np.pi/180.0 * orientation_angle)
+                arrow_patches.append(Arrow(x,y,dx,dy,facecolor='none',edgecolor='r'))
+                cell_patches.append(Polygon(verts,closed=True,facecolor='none',edgecolor='k'))
+            else:
+                cell_patches.append(Polygon(verts,closed=True,edgecolor='none'))
 
-        pc = PatchCollection(cell_patches,match_original=False, cmap=orientation_colormap, edgecolor='k', alpha=1)
-        pc.set_array(np.asarray(orientation_angle_list))
+                # This works for centrosymmetric cells (hexagon, square, not triangles)
+                # give cells with +/- 180 deg. orientation angles the same color
+                if orientation_angle < 0:
+                    orientation_angle += 180.0
 
-    plt.gca().add_collection(pc)
+                if orientation_angle > 90:
+                    orientation_angle = np.abs(orientation_angle-180.0)
+
+                orientation_angle_list.append(orientation_angle)
+
+    if vector_map:
+        arrow_collection = PatchCollection(arrow_patches,match_original=True, cmap=orientation_colormap, alpha=1)
+        cell_collection = PatchCollection(cell_patches,match_original=True, alpha=1)
+        plt.gca().add_collection(arrow_collection)
+    else:
+        cell_collection = PatchCollection(cell_patches,match_original=False,cmap=orientation_colormap,edgecolor='k', alpha=1)
+        cell_collection.set_array(np.asarray(orientation_angle_list))
+
+    plt.gca().add_collection(cell_collection)
 
     # set the limits for the plot
     # set the x axis range
@@ -538,7 +564,7 @@ def plot_orientation(im, msm, vor, orientation_colormap, mask, map_edge_particle
     # add the colorbar
     divider = make_axes_locatable(plt.gca())
     cax = divider.append_axes(position='right', size='5%', pad = 0.05)
-    cbar = plt.colorbar(pc, cax=cax)
+    cbar = plt.colorbar(cell_collection, cax=cax)
     cax.set_xlabel('$\Theta$ (deg)', fontsize=18)
     cax.xaxis.set_label_position('top')
     cax.xaxis.set_label_coords(0.5, 1.04)
@@ -783,7 +809,7 @@ if not args.noplot:
             implot = plt.imshow(im_original)
             implot.set_cmap('gray')
             orientation_colormap = plt.get_cmap('RdBu_r')
-            plot_orientation(im,msm,vor,orientation_colormap,mask,args.edge)
+            plot_orientation(im,msm,vor, pts, radii, pixels_per_nm, orientation_colormap,mask,args.edge)
 
 
 # save the metrics to a file
@@ -792,7 +818,8 @@ if bond_order > 0:
         header_string =     str(bond_order)+'-fold metric (Psi'+str(bond_order)+')\n'
         header_string +=    'References: Mickel, W., J. Chem. Phys. (2013), Escobedo, F., Soft Matter (2011)\n'
         header_string +=    'length: '+str(len(msm))+'\n'
-        header_string +=    'region_index\tPsi'+str(bond_order)
+        header_string +=    'region_index\tPsi'+str(bond_order)+'\n'
+        header_string +=    'orientation (deg)'
         np.savetxt(output_data_path+'/'+filename+'_Psi'+str(bond_order)+'_data.txt',msm,fmt=('%u','%.3f','%.3f'),delimiter='\t',header=header_string)
 
 # the rest of this should be moved to another file
